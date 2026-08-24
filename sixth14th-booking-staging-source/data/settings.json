@@ -1,0 +1,97 @@
+{
+  "business": {
+    "siteName": "Sixth 14th",
+    "propertyName": "A Gorgeous Garden Suite in Park Slope",
+    "internalName": "531 Sixth",
+    "addressSummary": "Park Slope, Brooklyn",
+    "imageUrl": "https://l.icdbcdn.com/oh/efe99561-72f4-4364-858c-a27cc65c5ddb.jpg?f=32",
+    "lodgifyPropertyId": "507939",
+    "lodgifyRoomTypeId": "574322",
+    "contactEmail": "",
+    "contactPhone": "",
+    "timezone": "America/New_York"
+  },
+  "rules": {
+    "minimumStayNights": 2,
+    "maximumStayNights": 1125,
+    "preparationDays": 1,
+    "advanceNoticeDays": 2,
+    "checkInTime": "3:00 PM",
+    "checkOutTime": "11:00 AM",
+    "quoteExpiryHours": 48,
+    "instantConfirmAfterDeposit": true
+  },
+  "pricing": {
+    "currency": "USD",
+    "baseNightlyByWeekday": {
+      "0": 295,
+      "1": 295,
+      "2": 295,
+      "3": 295,
+      "4": 295,
+      "5": 325,
+      "6": 325
+    },
+    "weeklyStay": {
+      "nights": 7,
+      "price": 2000
+    },
+    "monthlyStay": {
+      "nights": 30,
+      "price": 4500
+    },
+    "cleaningFee": 100,
+    "taxRate": 0,
+    "depositPercentage": 0.5
+  },
+  "messages": [
+    {
+      "id": "booking-accepted",
+      "name": "Booking accepted",
+      "enabled": true,
+      "trigger": "booking_confirmed",
+      "sendOffset": "immediate",
+      "body": "Hi {{guestFirstName}},\nWe are happy to tell you that your booking for {{houseName}} is now confirmed. We look forward to your visit to Brooklyn. Your booking details are below.\nIf you have any questions, please call or text {{housePhone}} or reply to this email.\nUntil we meet, travel safe!\n{{ownerName}}"
+    },
+    {
+      "id": "balance-due",
+      "name": "Balance due reminder",
+      "enabled": true,
+      "trigger": "seven_days_before_arrival",
+      "sendOffset": "-7d",
+      "body": "Hi {{guestFirstName}},\nYour remaining balance for {{houseName}} is due today. Please use the secure payment link below when you are ready.\n{{balancePaymentLink}}\nThank you."
+    },
+    {
+      "id": "check-in-instructions",
+      "name": "Check-in instructions",
+      "enabled": true,
+      "trigger": "two_days_before_arrival",
+      "sendOffset": "-2d",
+      "body": "Your apartment is located under the stoop, on your left as you walk in the gate.\nAccess is via a numeric keypad lock.\nThe code for your stay is set to the last four digits of your phone number."
+    },
+    {
+      "id": "welcome-message",
+      "name": "Welcome message",
+      "enabled": true,
+      "trigger": "arrival_day",
+      "sendOffset": "0d",
+      "body": "Hi {{guestFirstName}}, welcome to {{houseName}}. I hope you had a smooth arrival and are settling in comfortably. I have put together a local guide with favorite spots to eat, explore, and relax. If there is anything you need during your stay, reply here or call {{housePhone}}."
+    },
+    {
+      "id": "check-out-reminder",
+      "name": "Check-out reminder",
+      "enabled": true,
+      "trigger": "checkout_day",
+      "sendOffset": "checkout",
+      "body": "Check-out time is 11 am.\nPlease leave the place tidy and put trash and recycling in the bins located outside.\nNo need to strip beds or gather towels.\nThanks!"
+    },
+    {
+      "id": "review-request",
+      "name": "Review request",
+      "enabled": false,
+      "trigger": "two_days_after_departure",
+      "sendOffset": "+2d",
+      "body": "Hi {{guestFirstName}},\nI hope your stay was a great one. Would you mind taking a minute to leave a review?\n{{reviewLink}}\nThank you again for choosing {{houseName}}."
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sixth 14th Admin</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img class="brand-logo" src="/park-slope-6av-14st.webp" alt="Sixth Avenue and 14th Street icon">
+        <span>
+          <strong>Sixth &amp; 14th</strong>
+          <small>Admin</small>
+        </span>
+      </a>
+      <nav class="nav">
+        <a href="/">Booking page</a>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Staging</p>
+            <h1>System status</h1>
+          </div>
+        </div>
+        <div id="stagingStatus" class="status-grid"></div>
+      </section>
+
+      <section class="admin-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Today</p>
+            <h1>Operations dashboard</h1>
+          </div>
+        </div>
+        <div id="operationsDashboard" class="ops-dashboard"></div>
+      </section>
+
+      <section class="admin-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Calendar</p>
+            <h1>Booking calendar</h1>
+          </div>
+          <div class="section-actions">
+            <button id="adminCalendarPrev" type="button" class="secondary-button">Previous</button>
+            <strong id="adminCalendarLabel"></strong>
+            <button id="adminCalendarNext" type="button" class="secondary-button">Next</button>
+          </div>
+        </div>
+        <div id="adminCalendar" class="admin-calendar" aria-label="Admin booking calendar"></div>
+      </section>
+
+      <section class="admin-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Operations</p>
+            <h1>Booking activity</h1>
+          </div>
+          <div class="section-actions">
+            <label class="inline-toggle">
+              <input id="showArchivedActivity" type="checkbox">
+              Show archived
+            </label>
+            <button id="syncLodgify" type="button" class="primary-button">Sync Lodgify</button>
+            <button id="refreshAdmin" type="button" class="secondary-button">Refresh</button>
+          </div>
+        </div>
+        <p id="syncMessage" class="form-message" role="status" aria-live="polite"></p>
+        <div id="reservationTable" class="data-table"></div>
+      </section>
+
+      <section class="admin-grid">
+        <form id="blockForm" class="admin-card">
+          <h2>Block dates</h2>
+          <label>
+            Start
+            <input name="start" type="date" required>
+          </label>
+          <label>
+            End
+            <input name="end" type="date" required>
+          </label>
+          <label>
+            Reason
+            <input name="reason" placeholder="Owner stay, maintenance, etc.">
+          </label>
+          <button type="submit" class="primary-button">Add block</button>
+          <p id="blockMessage" class="form-message" role="status"></p>
+        </form>
+
+        <section class="admin-card">
+          <h2>Message cadence</h2>
+          <div id="messageList" class="message-list"></div>
+        </section>
+      </section>
+
+      <section class="admin-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Guest messages</p>
+            <h1>Message schedule</h1>
+          </div>
+          <div class="section-actions">
+            <button id="sendMessages" type="button" class="primary-button">Send due messages</button>
+            <button id="refreshMessages" type="button" class="secondary-button">Refresh</button>
+          </div>
+        </div>
+        <p id="messageQueueMessage" class="form-message" role="status" aria-live="polite"></p>
+        <div class="message-workbench">
+          <div id="messageQueue" class="data-table"></div>
+          <aside id="messagePreview" class="message-preview">
+            <h2>Preview</h2>
+            <p class="muted">Choose a scheduled message to review the guest copy.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="admin-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Safety</p>
+            <h1>Audit and backups</h1>
+          </div>
+          <div class="section-actions">
+            <a id="exportBackup" class="secondary-button" href="/api/admin/export">Download backup</a>
+            <button id="refreshAudit" type="button" class="secondary-button">Refresh</button>
+          </div>
+        </div>
+        <div id="auditLog" class="data-table"></div>
+      </section>
+    </main>
+
+    <script src="/tracking.js" type="module"></script>
+    <script src="/admin.js" type="module"></script>
+  </body>
+</html>

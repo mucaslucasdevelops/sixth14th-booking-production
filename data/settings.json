@@ -1,0 +1,104 @@
+{
+  "business": {
+    "siteName": "Sixth 14th",
+    "propertyName": "A Gorgeous Garden Suite in Park Slope",
+    "internalName": "531 Sixth",
+    "addressSummary": "Park Slope, Brooklyn",
+    "imageUrl": "/park-slope-6av-14st.webp",
+    "lodgifyPropertyId": "507939",
+    "lodgifyRoomTypeId": "574322",
+    "contactEmail": "",
+    "contactPhone": "",
+    "timezone": "America/New_York"
+  },
+  "rules": {
+    "minimumStayNights": 2,
+    "maximumStayNights": 1125,
+    "preparationDays": 1,
+    "advanceNoticeDays": 2,
+    "maximumGuests": 3,
+    "checkInTime": "3:00 PM",
+    "checkOutTime": "11:00 AM",
+    "quoteExpiryHours": 48,
+    "instantConfirmAfterDeposit": true
+  },
+  "pricing": {
+    "currency": "USD",
+    "baseNightlyByWeekday": {
+      "0": 295,
+      "1": 295,
+      "2": 295,
+      "3": 295,
+      "4": 295,
+      "5": 325,
+      "6": 325
+    },
+    "weeklyStay": {
+      "nights": 7,
+      "price": 2000
+    },
+    "monthlyStay": {
+      "nights": 30,
+      "price": 4500
+    },
+    "cleaningFee": 100,
+    "taxRate": 0,
+    "depositPercentage": 0.5
+  },
+  "messages": [
+    {
+      "id": "booking-confirmation",
+      "name": "Booking confirmation",
+      "subject": "Your Sixth & 14th booking is confirmed",
+      "enabled": true,
+      "trigger": "booking_confirmed",
+      "sendOffset": "immediate",
+      "body": "Hi {{guestFirstName}},\nYour booking for {{houseName}} is confirmed. We look forward to welcoming you to Brooklyn.\n\nBooking details:\n{{bookingDetails}}\n\nIf you have any questions, reply to this email or call/text {{housePhone}}.\n\nUntil we meet, travel safe!\n{{ownerName}}"
+    },
+    {
+      "id": "deposit-receipt",
+      "name": "Deposit receipt",
+      "subject": "Deposit received for your Sixth & 14th stay",
+      "enabled": true,
+      "trigger": "booking_confirmed",
+      "sendOffset": "immediate",
+      "body": "Hi {{guestFirstName}},\nThank you. Your deposit of {{depositAmount}} has been received and your booking is secured.\n\nYour remaining balance is {{balanceAmount}}.\n\nBooking details:\n{{bookingDetails}}\n\nThank you,\n{{ownerName}}"
+    },
+    {
+      "id": "balance-reminder",
+      "name": "Balance reminder",
+      "subject": "Balance reminder for your Sixth & 14th stay",
+      "enabled": true,
+      "trigger": "seven_days_before_arrival",
+      "sendOffset": "-7d",
+      "body": "Hi {{guestFirstName}},\nYour remaining balance for {{houseName}} is due before arrival.\n\nBalance due: {{balanceAmount}}\nSecure payment link: {{balancePaymentLink}}\n\nThank you,\n{{ownerName}}"
+    },
+    {
+      "id": "pre-arrival-check-in",
+      "name": "Pre-arrival and check-in instructions",
+      "subject": "Check-in instructions for your Sixth & 14th stay",
+      "enabled": true,
+      "trigger": "two_days_before_arrival",
+      "sendOffset": "-2d",
+      "body": "Hi {{guestFirstName}},\nWe are looking forward to your arrival on {{arrivalDate}}.\n\nCheck-in time: {{checkInTime}}\nThe apartment is located under the stoop, on your left as you walk in the gate.\nAccess is via a numeric keypad lock. The code for your stay is set to the last four digits of your phone number.\n\nIf anything comes up, reply here or call/text {{housePhone}}.\n\n{{ownerName}}"
+    },
+    {
+      "id": "check-out-reminder",
+      "name": "Check-out reminder",
+      "subject": "Check-out reminder for your Sixth & 14th stay",
+      "enabled": true,
+      "trigger": "checkout_day",
+      "sendOffset": "checkout",
+      "body": "Hi {{guestFirstName}},\nA quick reminder that check-out is at {{checkOutTime}} today.\n\nPlease leave the place tidy and put trash and recycling in the bins outside. No need to strip beds or gather towels.\n\nThanks again,\n{{ownerName}}"
+    },
+    {
+      "id": "post-stay-thank-you",
+      "name": "Post-stay thank-you",
+      "subject": "Thank you for staying at Sixth & 14th",
+      "enabled": true,
+      "trigger": "two_days_after_departure",
+      "sendOffset": "+2d",
+      "body": "Hi {{guestFirstName}},\nThank you again for choosing {{houseName}}. I hope your stay was comfortable and that Brooklyn treated you well.\n\nIf there is anything you would like us to know, just reply to this email.\n\nWarmly,\n{{ownerName}}"
+    }
+  ]
+}

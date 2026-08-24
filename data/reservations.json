@@ -1,0 +1,42 @@
+{
+  "reservations": [],
+  "manualBlocks": [],
+  "availabilityBlocks": [],
+  "messageQueue": [],
+  "auditEvents": [
+    {
+      "id": "050afd37-b72d-4b7d-88ce-40ac78fb1179",
+      "action": "booking.deleted",
+      "summary": "Deleted reservation for Preview Test",
+      "metadata": {
+        "reservationId": "a37c1337-3ae5-407c-9476-e22a3e03fe67",
+        "status": "demo_hold",
+        "paymentStatus": "demo_no_payment",
+        "dates": "2026-08-17 to 2026-08-19"
+      },
+      "createdAt": "2026-06-09T16:15:05.201Z"
+    },
+    {
+      "id": "c0842f67-1260-445e-b1ca-5c95c49a5574",
+      "action": "booking.approved_demo",
+      "summary": "Approved demo booking for Preview Test",
+      "metadata": {
+        "reservationId": "a37c1337-3ae5-407c-9476-e22a3e03fe67",
+        "dates": "2026-08-17 to 2026-08-19"
+      },
+      "createdAt": "2026-06-09T16:14:46.330Z"
+    },
+    {
+      "id": "3544f4f4-423b-484b-9e49-696b5f597fe2",
+      "action": "booking.requested",
+      "summary": "Booking request from Preview Test",
+      "metadata": {
+        "reservationId": "a37c1337-3ae5-407c-9476-e22a3e03fe67",
+        "guestEmail": "preview-test@example.com",
+        "dates": "2026-08-17 to 2026-08-19",
+        "total": 690
+      },
+      "createdAt": "2026-06-09T16:14:05.335Z"
+    }
+  ]
+}

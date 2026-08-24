@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Book Sixth 14th</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">614</span>
+        <span>
+          <strong>Sixth 14th</strong>
+          <small>Garden suite booking</small>
+        </span>
+      </a>
+      <nav class="nav">
+        <a href="/admin.html">Admin</a>
+      </nav>
+    </header>
+
+    <main class="booking-shell">
+      <section class="booking-main" aria-labelledby="booking-title">
+        <div class="property-strip">
+          <img id="propertyImage" alt="The Park Slope garden suite" src="">
+          <div>
+            <p class="eyebrow">Park Slope, Brooklyn</p>
+            <h1 id="booking-title">Choose your stay</h1>
+            <p class="muted">Select arrival and departure dates to see an exact quote.</p>
+          </div>
+        </div>
+
+        <div class="date-panel">
+          <label>
+            Arrival
+            <input id="arrivalInput" type="date" autocomplete="off">
+          </label>
+          <label>
+            Departure
+            <input id="departureInput" type="date" autocomplete="off">
+          </label>
+          <label>
+            Guests
+            <input id="guestsInput" type="number" min="1" max="4" value="2">
+          </label>
+        </div>
+
+        <div class="calendar-toolbar">
+          <button id="prevMonth" type="button" class="icon-button" aria-label="Previous month">‹</button>
+          <strong id="calendarLabel"></strong>
+          <button id="nextMonth" type="button" class="icon-button" aria-label="Next month">›</button>
+        </div>
+
+        <div id="calendar" class="calendar-grid" aria-label="Availability calendar"></div>
+
+        <form id="bookingForm" class="guest-form">
+          <h2>Guest details</h2>
+          <div class="form-grid">
+            <label>
+              Name
+              <input name="name" autocomplete="name" required>
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" autocomplete="email" required>
+            </label>
+            <label>
+              Phone
+              <input name="phone" autocomplete="tel" required>
+            </label>
+            <label>
+              Notes
+              <input name="notes" placeholder="Optional">
+            </label>
+          </div>
+          <button id="submitBooking" type="submit" class="primary-button" disabled>Request booking</button>
+          <p id="formMessage" class="form-message" role="status"></p>
+        </form>
+      </section>
+
+      <aside class="quote-panel" aria-labelledby="quote-title">
+        <h2 id="quote-title">Quote</h2>
+        <div id="quoteEmpty" class="empty-state">
+          Pick at least two nights to calculate the stay.
+        </div>
+        <div id="quoteContent" class="quote-content" hidden>
+          <div class="stay-summary">
+            <strong id="stayDates"></strong>
+            <span id="stayNights"></span>
+          </div>
+          <div id="lineItems" class="line-items"></div>
+          <div class="total-row">
+            <span>Total</span>
+            <strong id="totalAmount"></strong>
+          </div>
+          <div class="payment-split">
+            <div>
+              <span>Deposit due now</span>
+              <strong id="depositAmount"></strong>
+            </div>
+            <div>
+              <span>Balance due 7 days before arrival</span>
+              <strong id="balanceAmount"></strong>
+            </div>
+          </div>
+          <p class="fine-print">Check-in is <span id="checkInTime"></span>. Check-out is <span id="checkOutTime"></span>.</p>
+        </div>
+      </aside>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

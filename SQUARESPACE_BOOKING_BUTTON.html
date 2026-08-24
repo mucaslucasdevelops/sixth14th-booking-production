@@ -1,0 +1,26 @@
+<a
+  id="sixth14th-booking-link"
+  href="https://sixth14th-booking-staging.onrender.com/"
+  target="_blank"
+  rel="noopener"
+  style="display:inline-block;padding:14px 22px;border-radius:8px;background:#2f4a39;color:#fff;font-family:inherit;font-size:16px;font-weight:700;line-height:1;text-decoration:none;"
+>Request your stay</a>
+<script>
+  (function preserveBookingAttribution() {
+    var allowedKeys = ["gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"];
+    var source = new URLSearchParams(window.location.search);
+    var kept = new URLSearchParams();
+    allowedKeys.forEach(function (key) {
+      var value = source.get(key);
+      if (value) kept.set(key, value);
+    });
+    if (!kept.toString()) return;
+    var link = document.getElementById("sixth14th-booking-link");
+    if (!link) return;
+    var target = new URL(link.href);
+    kept.forEach(function (value, key) {
+      target.searchParams.set(key, value);
+    });
+    link.href = target.toString();
+  })();
+</script>

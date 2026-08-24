@@ -1,0 +1,12 @@
+{
+  "name": "sixth14th-booking",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "import:lodgify": "node scripts/import-lodgify-blocks.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "test:regression": "node scripts/regression-test.mjs"
+  }
+}
