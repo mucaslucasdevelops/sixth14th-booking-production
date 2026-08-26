@@ -1,15 +1,13 @@
 <!doctype html>
 <html lang="en">
   <head>
-
     <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18244613356"></script>
-
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', 'AW-18244613356');
-</script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'AW-18244613356');
+    </script>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Payment Received - Sixth &amp; 14th</title>
@@ -22,21 +20,20 @@ gtag('config', 'AW-18244613356');
         <h1>Payment received</h1>
         <p>Your payment was received securely. The reservation status will update as soon as Stripe confirmation is processed.</p>
         <a class="primary-button" href="/">Back to booking</a>
-        
         <script>
-window.addEventListener('load', function () {
-  if (typeof gtag !== 'function') {
-    console.warn('gtag not available');
-    return;
-  }
+          window.addEventListener('load', function () {
+            if (typeof gtag !== 'function') {
+              console.warn('gtag not available');
+              return;
+            }
 
-  gtag('event', 'conversion', {
-    send_to: 'AW-18244613356/2W2tCPPk7gcEKqktoD',
-    value: 1.0,
-    currency: 'USD'
-  });
-});
-</script>
+            gtag('event', 'conversion', {
+              send_to: 'AW-18244613356/2W2tCPPk7gcEKqktoD',
+              value: 1.0,
+              currency: 'USD'
+            });
+          });
+        </script>
       </section>
     </main>
   </body>
