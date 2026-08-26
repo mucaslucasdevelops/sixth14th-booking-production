@@ -13,6 +13,8 @@ document.querySelector("#showArchivedActivity")?.addEventListener("change", sche
 document.querySelector("#adminCalendarPrev")?.addEventListener("click", scheduleEnhance);
 document.querySelector("#adminCalendarNext")?.addEventListener("click", scheduleEnhance);
 document.querySelector("#refreshAudit")?.addEventListener("click", scheduleEnhance);
+document.querySelector("#refreshMessages")?.addEventListener("click", scheduleEnhance);
+document.querySelector("#sendMessages")?.addEventListener("click", scheduleEnhance);
 
 const calendar = document.querySelector("#adminCalendar");
 if (calendar) {
@@ -27,6 +29,11 @@ if (reservationTable) {
 const auditLog = document.querySelector("#auditLog");
 if (auditLog) {
   new MutationObserver(scheduleEnhance).observe(auditLog, { childList: true, subtree: true });
+}
+
+const messageQueue = document.querySelector("#messageQueue");
+if (messageQueue) {
+  new MutationObserver(scheduleEnhance).observe(messageQueue, { childList: true, subtree: true });
 }
 
 async function refreshAdminData() {
@@ -51,6 +58,7 @@ function scheduleEnhance() {
     addMarkPaidActions();
     cleanOperationsDashboard();
     sortAuditLogNewestFirst();
+    sortSentMessagesBelowScheduled();
   });
 }
 
@@ -217,6 +225,31 @@ function auditRowTime(row) {
   const value = row.firstElementChild?.textContent?.trim() || "";
   const time = Date.parse(value);
   return Number.isNaN(time) ? 0 : time;
+}
+
+function sortSentMessagesBelowScheduled() {
+  const messageQueue = document.querySelector("#messageQueue");
+  if (!messageQueue || messageQueue.dataset.sentSorted === "true") return;
+
+  const head = messageQueue.querySelector(".message-head");
+  const currentRows = Array.from(messageQueue.querySelectorAll(".message-row"));
+  if (!head || currentRows.length < 2) return;
+
+  const scheduledRows = currentRows.filter((row) => messageRowStatus(row) !== "sent");
+  const sentRows = currentRows.filter((row) => messageRowStatus(row) === "sent");
+  const sortedRows = [...scheduledRows, ...sentRows];
+  const alreadySorted = sortedRows.every((row, index) => currentRows[index] === row);
+  if (alreadySorted) return;
+
+  messageQueue.replaceChildren(head, ...sortedRows);
+  messageQueue.dataset.sentSorted = "true";
+  window.requestAnimationFrame(() => {
+    messageQueue.dataset.sentSorted = "";
+  });
+}
+
+function messageRowStatus(row) {
+  return row.querySelector(".status-pill")?.textContent?.trim().toLowerCase() || "";
 }
 
 async function markReservationPaidInFull(reservation, button) {
