@@ -8,6 +8,7 @@ const availableDeparture = addDaysIso(availableArrival, 2);
 const checks = [
   ["health", "GET", "/api/health"],
   ["config", "GET", "/api/config"],
+  ["success page", "GET", "/success.html"],
   ["status", "GET", "/api/staging/status"],
   ["available quote", "POST", "/api/quote", { arrival: availableArrival, departure: availableDeparture, guests: 2 }],
   ["blocked quote", "POST", "/api/quote", { arrival: "2026-05-15", departure: "2026-05-17", guests: 2 }, 400]
@@ -27,6 +28,15 @@ for (const [name, method, path, body, expectedStatus = 200] of checks) {
   const passed = response.status === expectedStatus;
   console.log(`${passed ? "PASS" : "FAIL"} ${name}: ${response.status}`);
   if (!passed) failures += 1;
+
+  if (passed && name === "success page") {
+    const html = await response.text();
+    const hasGoogleTag = html.includes("https://www.googletagmanager.com/gtag/js?id=AW-18244613356");
+    const hasConversion = html.includes("AW-18244613356/2W2tCPPk7gcEKqktoD");
+    console.log(`${hasGoogleTag ? "PASS" : "FAIL"} success page Google tag`);
+    console.log(`${hasConversion ? "PASS" : "FAIL"} success page conversion event`);
+    if (!hasGoogleTag || !hasConversion) failures += 1;
+  }
 }
 
 if (failures) {
