@@ -12,6 +12,7 @@ document.querySelector("#refreshAdmin")?.addEventListener("click", () => {
 document.querySelector("#showArchivedActivity")?.addEventListener("change", scheduleEnhance);
 document.querySelector("#adminCalendarPrev")?.addEventListener("click", scheduleEnhance);
 document.querySelector("#adminCalendarNext")?.addEventListener("click", scheduleEnhance);
+document.querySelector("#refreshAudit")?.addEventListener("click", scheduleEnhance);
 
 const calendar = document.querySelector("#adminCalendar");
 if (calendar) {
@@ -21,6 +22,11 @@ if (calendar) {
 const reservationTable = document.querySelector("#reservationTable");
 if (reservationTable) {
   new MutationObserver(scheduleEnhance).observe(reservationTable, { childList: true, subtree: true });
+}
+
+const auditLog = document.querySelector("#auditLog");
+if (auditLog) {
+  new MutationObserver(scheduleEnhance).observe(auditLog, { childList: true, subtree: true });
 }
 
 async function refreshAdminData() {
@@ -44,6 +50,7 @@ function scheduleEnhance() {
     decorateCalendarDoorCodes();
     addMarkPaidActions();
     cleanOperationsDashboard();
+    sortAuditLogNewestFirst();
   });
 }
 
@@ -185,6 +192,31 @@ function formatDate(iso) {
     day: "numeric",
     timeZone: "UTC"
   });
+}
+
+function sortAuditLogNewestFirst() {
+  const auditLog = document.querySelector("#auditLog");
+  if (!auditLog || auditLog.dataset.sortedNewestFirst === "true") return;
+
+  const head = auditLog.querySelector(".audit-head");
+  const currentRows = Array.from(auditLog.querySelectorAll(".audit-row"));
+  if (!head || currentRows.length < 2) return;
+
+  const sortedRows = [...currentRows].sort((a, b) => auditRowTime(b) - auditRowTime(a));
+  const alreadySorted = sortedRows.every((row, index) => currentRows[index] === row);
+  if (alreadySorted) return;
+
+  auditLog.replaceChildren(head, ...sortedRows);
+  auditLog.dataset.sortedNewestFirst = "true";
+  window.requestAnimationFrame(() => {
+    auditLog.dataset.sortedNewestFirst = "";
+  });
+}
+
+function auditRowTime(row) {
+  const value = row.firstElementChild?.textContent?.trim() || "";
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
 }
 
 async function markReservationPaidInFull(reservation, button) {
