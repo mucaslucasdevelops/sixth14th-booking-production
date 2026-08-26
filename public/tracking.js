@@ -1,8 +1,9 @@
-const DEFAULT_GOOGLE_ADS_ID = "AW-994349610";
+const DEFAULT_GOOGLE_ADS_ID = "AW-18244613356";
+const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "2W2tCPPk7gcEKqktoD";
 
 const trackingState = {
   adsId: DEFAULT_GOOGLE_ADS_ID,
-  conversionLabel: "",
+  conversionLabel: DEFAULT_GOOGLE_ADS_CONVERSION_LABEL,
   debug: false,
   ready: false
 };
@@ -19,10 +20,10 @@ async function initTracking() {
     const config = await fetchJson("/api/config");
     const tracking = config.tracking || {};
     trackingState.adsId = tracking.googleAdsId || DEFAULT_GOOGLE_ADS_ID;
-    trackingState.conversionLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, trackingState.adsId);
+    trackingState.conversionLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, trackingState.adsId) || DEFAULT_GOOGLE_ADS_CONVERSION_LABEL;
     trackingState.debug = Boolean(tracking.debug);
     trackingState.ready = false;
-    debugLog("Google Ads delivery disabled; attribution is capture-only", {
+    debugLog("Booking-request Google Ads delivery disabled; payment conversion fires on success.html", {
       adsId: trackingState.adsId,
       hasConversionLabel: Boolean(trackingState.conversionLabel)
     });
@@ -33,7 +34,7 @@ async function initTracking() {
 
 async function trackBookingRequestConversion(details = {}) {
   await trackingReady;
-  debugLog("Booking request conversion delivery skipped; attribution is capture-only", {
+  debugLog("Booking request conversion delivery skipped; payment conversion fires after Stripe redirect", {
     adsId: trackingState.adsId,
     hasConversionLabel: Boolean(trackingState.conversionLabel),
     hasTransactionId: Boolean(details.transactionId),
