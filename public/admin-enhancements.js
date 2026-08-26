@@ -43,6 +43,7 @@ function scheduleEnhance() {
     enhanceScheduled = false;
     decorateCalendarDoorCodes();
     addMarkPaidActions();
+    cleanOperationsDashboard();
   });
 }
 
@@ -127,6 +128,63 @@ function addMarkPaidActions() {
     button.addEventListener("click", () => markReservationPaidInFull(reservation, button));
     actionContainer.appendChild(button);
   }
+}
+
+function cleanOperationsDashboard() {
+  const dashboard = document.querySelector("#operationsDashboard");
+  if (!dashboard) return;
+
+  const activeReservations = adminData.reservations
+    .filter((reservation) => reservation && !reservation.archivedAt)
+    .filter((reservation) => reservation.source !== "lodgify")
+    .filter((reservation) => !["canceled", "declined"].includes(reservation.status));
+
+  const unpaidBalances = activeReservations
+    .filter((reservation) => reservation.status === "booked")
+    .filter((reservation) => reservation.paymentStatus !== "paid_in_full")
+    .filter((reservation) => remainingBalance(reservation) > 0)
+    .sort((a, b) => String(a.arrival || "").localeCompare(String(b.arrival || "")));
+
+  const card = Array.from(dashboard.querySelectorAll(".ops-card")).find((item) => /unpaid balances/i.test(item.innerText));
+  if (!card) return;
+
+  const count = card.querySelector(".ops-card-heading strong");
+  if (count) count.textContent = String(unpaidBalances.length);
+
+  const list = card.querySelector("ul");
+  if (!list) return;
+  list.replaceChildren(...dashboardLines(unpaidBalances));
+  card.classList.toggle("attention", unpaidBalances.length > 0);
+}
+
+function dashboardLines(reservations) {
+  if (!reservations.length) {
+    const item = document.createElement("li");
+    item.className = "muted";
+    item.textContent = "Booked stays with money still due.";
+    return [item];
+  }
+
+  return reservations.slice(0, 3).map((reservation) => {
+    const item = document.createElement("li");
+    const name = document.createElement("strong");
+    name.textContent = reservation.guest?.name || "Guest";
+    const amount = document.createTextNode(` ${money(remainingBalance(reservation), reservation.quote?.currency || "USD")}`);
+    const lineBreak = document.createElement("br");
+    const arrival = document.createElement("span");
+    arrival.className = "muted";
+    arrival.textContent = `${formatDate(reservation.arrival)} arrival`;
+    item.append(name, amount, lineBreak, arrival);
+    return item;
+  });
+}
+
+function formatDate(iso) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC"
+  });
 }
 
 async function markReservationPaidInFull(reservation, button) {
