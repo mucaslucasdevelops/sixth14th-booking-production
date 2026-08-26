@@ -25,9 +25,17 @@ gtag('config', 'AW-18244613356');
         
         <script>
 window.addEventListener('load', function () {
+  if (typeof gtag !== 'function') {
+    console.warn('gtag not available');
+    return;
+  }
+
   gtag('event', 'conversion', {
-    'send_to': 'AW-18244613356/2W2tCPPk7gcEKqktoD'
+    send_to: 'AW-18244613356/2W2tCPPk7gcEKqktoD',
+    value: 1.0,
+    currency: 'USD'
   });
+});
 </script>
       </section>
     </main>
