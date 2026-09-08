@@ -1,5 +1,5 @@
-const DEFAULT_GOOGLE_ADS_ID = "AW-18386448301";
-const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "d5yYCNPXtugcEK3fq79E";
+const DEFAULT_GOOGLE_ADS_ID = "AW-994349610";
+const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "VjVqCJiT3eccEKqkktoD";
 const GOOGLE_TAG_SCRIPT_ID = "sixth14th-google-tag";
 
 const trackingState = {
@@ -27,7 +27,7 @@ async function initTracking() {
     trackingState.debug = Boolean(tracking.debug);
     installGoogleTag(trackingState.adsId);
     trackingState.ready = true;
-    debugLog("Google Ads tracking initialized for begin-checkout conversion", {
+    debugLog("Google Ads tracking initialized for purchase conversion", {
       adsId: trackingState.adsId,
       hasConversionLabel: Boolean(trackingState.conversionLabel)
     });
@@ -39,14 +39,14 @@ async function initTracking() {
 async function trackBookingRequestConversion(details = {}) {
   await trackingReady;
   if (!trackingState.ready || !trackingState.adsId || !trackingState.conversionLabel || typeof window.gtag !== "function") {
-    debugLog("Begin-checkout conversion skipped because Google Ads tracking is unavailable", {
+    debugLog("Purchase conversion skipped because Google Ads tracking is unavailable", {
       adsId: trackingState.adsId,
       hasConversionLabel: Boolean(trackingState.conversionLabel)
     });
     return false;
   }
 
-  debugLog("Sending begin-checkout Google Ads conversion", {
+  debugLog("Sending purchase Google Ads conversion", {
     adsId: trackingState.adsId,
     hasConversionLabel: Boolean(trackingState.conversionLabel),
     hasTransactionId: Boolean(details.transactionId),

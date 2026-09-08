@@ -3173,8 +3173,8 @@ function redirect(res, location) {
 
 function sendCheckoutRedirect(res, checkoutUrl) {
   const tracking = publicTrackingConfig();
-  const adsId = normalizeGoogleAdsTagId(tracking.googleAdsId) || "AW-18386448301";
-  const conversionLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, adsId) || "d5yYCNPXtugcEK3fq79E";
+  const adsId = normalizeGoogleAdsTagId(tracking.googleAdsId) || "AW-994349610";
+  const conversionLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, adsId) || "VjVqCJiT3eccEKqkktoD";
   const destination = JSON.stringify(checkoutUrl);
   const sendTo = JSON.stringify(`${adsId}/${conversionLabel}`);
   sendHtml(res, 200, `<!doctype html>
@@ -3200,6 +3200,7 @@ function sendCheckoutRedirect(res, checkoutUrl) {
       }
       gtag('event', 'conversion', {
         send_to: ${sendTo},
+        transaction_id: '',
         event_callback: continueToCheckout,
         event_timeout: 1000
       });
@@ -3282,7 +3283,7 @@ function publicBookingEnabled() {
 function publicTrackingConfig() {
   return {
     googleAdsId: process.env.GOOGLE_ADS_ID || "AW-994349610",
-    googleAdsConversionLabel: process.env.GOOGLE_ADS_CONVERSION_LABEL || "",
+    googleAdsConversionLabel: process.env.GOOGLE_ADS_CONVERSION_LABEL || "VjVqCJiT3eccEKqkktoD",
     debug: trackingDebugEnabled()
   };
 }
