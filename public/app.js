@@ -264,8 +264,8 @@ async function submitBooking(event) {
       notes: form.get("notes"),
       attribution: state.attribution
     });
-    await trackBookingRequestConversion(result);
     if (result.checkoutUrl) {
+      await trackBookingRequestConversion(result);
       window.location.href = result.checkoutUrl;
       return;
     }
