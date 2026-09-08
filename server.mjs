@@ -699,7 +699,7 @@ async function handlePaymentLink(req, res, url) {
       balanceDue,
       checkoutSessionId: session.id
     });
-    redirect(res, session.url);
+    sendCheckoutRedirect(res, session.url);
     return;
   }
 
@@ -714,7 +714,7 @@ async function handlePaymentLink(req, res, url) {
     return;
   }
 
-  redirect(res, checkoutUrl);
+  sendCheckoutRedirect(res, checkoutUrl);
 }
 
 async function prepareDepositEmail(id, settings) {
@@ -3169,6 +3169,68 @@ function redirect(res, location) {
     location
   });
   res.end();
+}
+
+function sendCheckoutRedirect(res, checkoutUrl) {
+  const tracking = publicTrackingConfig();
+  const adsId = normalizeGoogleAdsTagId(tracking.googleAdsId) || "AW-18386448301";
+  const conversionLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, adsId) || "d5yYCNPXtugcEK3fq79E";
+  const destination = JSON.stringify(checkoutUrl);
+  const sendTo = JSON.stringify(`${adsId}/${conversionLabel}`);
+  sendHtml(res, 200, `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="3;url=${escapeHtml(checkoutUrl)}">
+    <title>Continue to checkout - Sixth &amp; 14th</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(adsId)}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', ${JSON.stringify(adsId)});
+      var checkoutDestination = ${destination};
+      var checkoutStarted = false;
+      function continueToCheckout() {
+        if (checkoutStarted) return;
+        checkoutStarted = true;
+        window.location.href = checkoutDestination;
+      }
+      gtag('event', 'conversion', {
+        send_to: ${sendTo},
+        event_callback: continueToCheckout,
+        event_timeout: 1000
+      });
+      setTimeout(continueToCheckout, 1200);
+    </script>
+  </head>
+  <body>
+    <main class="centered-page">
+      <section class="confirmation-card">
+        <img class="confirmation-image" src="/park-slope-6av-14st.webp" alt="Illustrated Sixth Avenue and 14th Street icon">
+        <h1>Continue to checkout</h1>
+        <p>Taking you to the secure payment page.</p>
+        <a class="primary-button" href="${escapeHtml(checkoutUrl)}">Continue</a>
+      </section>
+    </main>
+  </body>
+</html>`);
+}
+
+function normalizeGoogleAdsTagId(value) {
+  const id = String(value || "").trim();
+  return /^AW-\d+$/.test(id) ? id : "";
+}
+
+function normalizeConversionLabel(value, adsId) {
+  const label = String(value || "").trim();
+  if (!label) return "";
+  const sendToPrefix = `${adsId}/`;
+  if (label.startsWith(sendToPrefix)) return label.slice(sendToPrefix.length);
+  if (label.startsWith("AW-") && label.includes("/")) return label.split("/").pop();
+  return label;
 }
 
 function sendPaymentNotice(res, status, title, message) {

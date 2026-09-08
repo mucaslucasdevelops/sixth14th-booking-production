@@ -104,25 +104,31 @@ async function runChecks(context) {
       await writeFile(storePath, `${JSON.stringify(store, null, 2)}\n`);
 
       const paymentLink = await fetch(`${publicApp.baseUrl}/pay/deposit/short-payment-link`, { redirect: "manual" });
-      assert(paymentLink.status === 303, `expected short payment link redirect 303, got ${paymentLink.status}`);
+      const paymentLinkHtml = await paymentLink.text();
+      assert(paymentLink.status === 200, `expected short payment link checkout page 200, got ${paymentLink.status}`);
       assert(
-        paymentLink.headers.get("location") === "https://checkout.stripe.com/c/pay/short-payment-link",
-        "expected short payment link to redirect to Stripe checkout"
+        paymentLinkHtml.includes("https://checkout.stripe.com/c/pay/short-payment-link"),
+        "expected short payment link page to continue to Stripe checkout"
       );
+      assert(paymentLinkHtml.includes("AW-18386448301/d5yYCNPXtugcEK3fq79E"), "expected short payment link page to fire begin-checkout conversion");
 
       const tokenPaymentLink = await fetch(`${publicApp.baseUrl}/pay/deposit/deposit-token`, { redirect: "manual" });
-      assert(tokenPaymentLink.status === 303, `expected token payment link redirect 303, got ${tokenPaymentLink.status}`);
+      const tokenPaymentLinkHtml = await tokenPaymentLink.text();
+      assert(tokenPaymentLink.status === 200, `expected token payment link checkout page 200, got ${tokenPaymentLink.status}`);
       assert(
-        tokenPaymentLink.headers.get("location") === "https://checkout.stripe.com/c/pay/short-payment-link",
-        "expected token payment link to redirect to Stripe checkout"
+        tokenPaymentLinkHtml.includes("https://checkout.stripe.com/c/pay/short-payment-link"),
+        "expected token payment link page to continue to Stripe checkout"
       );
+      assert(tokenPaymentLinkHtml.includes("AW-18386448301/d5yYCNPXtugcEK3fq79E"), "expected token payment link page to fire begin-checkout conversion");
 
       const balancePaymentLink = await fetch(`${publicApp.baseUrl}/pay/balance/balance-token`, { redirect: "manual" });
-      assert(balancePaymentLink.status === 303, `expected balance payment link redirect 303, got ${balancePaymentLink.status}`);
+      const balancePaymentLinkHtml = await balancePaymentLink.text();
+      assert(balancePaymentLink.status === 200, `expected balance payment link checkout page 200, got ${balancePaymentLink.status}`);
       assert(
-        balancePaymentLink.headers.get("location") === "https://checkout.stripe.com/c/pay/balance-payment-link",
-        "expected balance payment link to redirect to Stripe checkout"
+        balancePaymentLinkHtml.includes("https://checkout.stripe.com/c/pay/balance-payment-link"),
+        "expected balance payment link page to continue to Stripe checkout"
       );
+      assert(balancePaymentLinkHtml.includes("AW-18386448301/d5yYCNPXtugcEK3fq79E"), "expected balance payment link page to fire begin-checkout conversion");
     } finally {
       await publicApp.stop();
     }
