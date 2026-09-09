@@ -659,7 +659,9 @@ a:focus-visible {
 .data-table {
   border: 1px solid var(--line);
   border-radius: 8px;
+  max-height: min(560px, 62vh);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .data-row,
@@ -700,7 +702,10 @@ a:focus-visible {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
+  position: sticky;
   text-transform: uppercase;
+  top: 0;
+  z-index: 1;
 }
 
 .data-row,
