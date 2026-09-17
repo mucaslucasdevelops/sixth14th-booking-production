@@ -1018,3 +1018,23 @@ a:focus-visible {
     gap: 12px;
   }
 }
+
+.analytics-section .section-heading { margin-bottom: 24px; }
+.analytics-section .eyebrow { margin: 0 0 6px; font-size: .7rem; letter-spacing: .1em; }
+.analytics-section #analyticsHeading { font-size: 1.5rem; line-height: 1.25; letter-spacing: -.035em; margin: 0; }
+.analytics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.analytics-card { background: #f6f7f4; border: 1px solid #e9ece6; border-radius: 10px; padding: 18px 16px; min-width: 0; }
+.analytics-card span, .analytics-card small { display: block; color: var(--muted); }
+.analytics-card span { font-size: .75rem; font-weight: 600; }
+.analytics-card strong { display: block; color: var(--ink); font-size: 1.5rem; line-height: 1.2; letter-spacing: -.04em; font-variant-numeric: tabular-nums; margin: 12px 0 6px; overflow-wrap: normal; }
+.analytics-card strong .analytics-amount { color: inherit; font: inherit; letter-spacing: inherit; white-space: nowrap; }
+.analytics-card:last-child { background: var(--sage-dark); border-color: var(--sage-dark); }
+.analytics-card:last-child strong { color: white; }
+.analytics-card:last-child > span, .analytics-card:last-child small { color: #d5e0d7; }
+.analytics-card small { font-size: .7rem; line-height: 1.5; }
+.analytics-details { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 14px; }
+.analytics-details summary { color: var(--muted); cursor: pointer; font-size: .75rem; width: fit-content; }
+.analytics-details summary:focus-visible { outline: 2px solid var(--sage); outline-offset: 4px; }
+.analytics-note { font-size: .75rem; line-height: 1.65; margin: 12px 0 0; max-width: 85ch; }
+@media (min-width: 1100px) { .analytics-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .analytics-card { padding: 14px 10px; } .analytics-card strong { font-size: 1.2rem; } .analytics-card:last-child { grid-column: 1 / -1; } }
