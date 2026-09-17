@@ -1,5 +1,3 @@
-import { calculateBookingAnalytics } from "./booking-analytics.js";
-
 const els = {
   stagingStatus: document.querySelector("#stagingStatus"),
   operationsDashboard: document.querySelector("#operationsDashboard"),
@@ -77,18 +75,10 @@ async function loadStatus() {
 }
 
 async function loadReservations() {
-  let store;
-  try {
-    store = await getJson("/api/admin/reservations");
-  } catch (error) {
-    document.querySelector("#bookingAnalytics").textContent = "Analytics unavailable. Use Refresh in Booking activity to retry.";
-    document.querySelector("#analyticsCoverage").textContent = "";
-    return;
-  }
+  const store = await getJson("/api/admin/reservations");
   latestReservations = store.reservations || [];
   latestManualBlocks = store.manualBlocks || [];
   latestAvailabilityBlocks = store.availabilityBlocks || [];
-  renderBookingAnalytics();
   renderAdminCalendar();
   renderReservations(latestReservations, latestManualBlocks, latestAvailabilityBlocks);
   renderMessages();
@@ -632,7 +622,100 @@ function reservationAction(reservation) {
       `;
     }
     const paymentLink = reservation.stripeCheckoutUrl
-      ? `<a class="text-button" href="${escapeHtml(paymentPageUrl(reservation, "deposit"))}" target="_blank" rel="no…2693 tokens truncated…view-message">Preview</button>
+      ? `<a class="text-button" href="${escapeHtml(paymentPageUrl(reservation, "deposit"))}" target="_blank" rel="noopener">Open deposit link</a>
+        <button type="button" class="text-button" data-action="copy-payment-link" data-url="${escapeHtml(paymentPageUrl(reservation, "deposit"))}">Copy deposit link</button>`
+      : "";
+    const emailLink = emailComposeLink(reservation.depositEmail, "Compose deposit email");
+    return `
+      <span class="row-actions">
+        ${paymentLink}
+        ${emailLink}
+        <button type="button" class="text-button" data-action="cancel-reservation">Cancel hold</button>
+        ${activityActions}
+      </span>
+    `;
+  }
+  if (reservation.status === "booked") {
+    const balanceDue = remainingBalance(reservation);
+    const actions = [];
+    if (reservation.paymentStatus !== "paid_in_full" && balanceDue > 0) {
+      if (reservation.balanceCheckoutUrl) {
+        actions.push(`<a class="text-button" href="${escapeHtml(paymentPageUrl(reservation, "balance"))}" target="_blank" rel="noopener">Open balance link</a>`);
+        actions.push(`<button type="button" class="text-button" data-action="copy-payment-link" data-url="${escapeHtml(paymentPageUrl(reservation, "balance"))}">Copy balance link</button>`);
+        actions.push(emailComposeLink(reservation.balanceEmail, "Compose balance email"));
+…1643 tokens truncated… await loadMessageQueue();
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Save template";
+  }
+}
+
+async function previewMessageTemplate(event, id) {
+  const form = event.currentTarget.closest("form");
+  const status = form.querySelector("[data-template-message]");
+  const preview = form.querySelector("[data-template-preview]");
+  status.textContent = "";
+  status.classList.remove("error");
+  preview.hidden = true;
+  try {
+    const result = await postJson(`/api/admin/messages/${encodeURIComponent(id)}/preview`, {
+      reservationId: form.elements.reservationId.value
+    });
+    preview.textContent = `To: ${result.recipientName} <${result.to}>\nSubject: ${result.subject}\n\n${result.body}`;
+    preview.hidden = false;
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  }
+}
+
+async function sendMessageTemplateTest(event, id) {
+  const button = event.currentTarget;
+  const form = button.closest("form");
+  const status = form.querySelector("[data-template-message]");
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Sending...";
+  status.textContent = "";
+  status.classList.remove("error");
+  try {
+    const result = await postJson(`/api/admin/messages/${encodeURIComponent(id)}/test`, {
+      reservationId: form.elements.reservationId.value,
+      email: form.elements.testEmail.value
+    });
+    status.textContent = result.status === "sent"
+      ? `Test sent to ${result.to}.`
+      : `Test ready but not sent: ${result.detail || result.error || result.status}.`;
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+function renderMessageQueue(queue) {
+  const rows = [];
+  const head = document.createElement("div");
+  head.className = "message-head";
+  head.innerHTML = "<span>Guest</span><span>Message</span><span>Send timing</span><span>Status</span><span>Actions</span>";
+  rows.push(head);
+
+  for (const delivery of queue) {
+    const row = document.createElement("div");
+    row.className = "message-row";
+    row.dataset.deliveryId = delivery.id;
+    row.innerHTML = `
+      <div><strong>${escapeHtml(delivery.recipientName || "Guest")}</strong><br><span class="muted">${escapeHtml(delivery.recipientEmail || "")}</span></div>
+      <span>${escapeHtml(delivery.messageName)}</span>
+      <span>${escapeHtml(formatDateTime(delivery.dueAt))}</span>
+      <span class="status-pill">${escapeHtml(delivery.status)}</span>
+      <span class="row-actions">
+        <button type="button" class="text-button" data-action="preview-message">Preview</button>
         ${messageComposeLink(delivery)}
         ${["sent", "skipped"].includes(delivery.status) ? "" : '<button type="button" class="text-button" data-action="mark-message-sent">Mark sent</button>'}
       </span>
@@ -1083,26 +1166,4 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#039;"
   })[char]);
-}
-
-function renderBookingAnalytics() {
-  const year = Number(new Intl.DateTimeFormat("en-US", { year: "numeric", timeZone: "America/New_York" }).format(new Date()));
-  const stats = calculateBookingAnalytics(latestReservations, year);
-  document.querySelector("#analyticsYear").textContent = year;
-  const currencyValues = (key) => Object.entries(stats.financials)
-    .map(([currency, amounts]) => money(amounts[key], currency)).join(" / ") || money(0, "USD");
-  const cards = [
-    ["Booking days", stats.bookedDays.toLocaleString(), "Occupied nights; checkout excluded"],
-    ["Occupancy", `${(stats.bookedDays / stats.daysInYear * 100).toFixed(1)}%`, `${stats.bookedDays} of ${stats.daysInYear} calendar days`],
-    ["Deposits paid", currencyValues("deposits"), "Recorded payments up to each deposit amount"],
-    ["Money due", currencyValues("due"), "Outstanding booking balances"],
-    ["Total booking revenue", currencyValues("revenue"), "Full booking totals, including fees and taxes"]
-  ];
-  document.querySelector("#bookingAnalytics").replaceChildren(...cards.map(([label, value, detail]) => {
-    const card = document.createElement("article");
-    card.className = "analytics-card";
-    card.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>${escapeHtml(detail)}</small>`;
-    return card;
-  }));
-  document.querySelector("#analyticsCoverage").textContent = `${stats.bookingCount} confirmed stays overlap this year. Calendar-only availability blocks are excluded because they may represent maintenance or owner stays. Imported Lodgify deposits are unavailable and excluded from deposits paid; imported totals and balances reflect the last sync. This panel covers records retained in this app, not a complete historical Lodgify ledger.${stats.missingFinancials ? ` ${stats.missingFinancials} stays lack financial totals and are excluded from money figures.` : ""}`;
 }
