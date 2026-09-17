@@ -1,4 +1,5 @@
 const DAY = 86400000;
+const BOOKING_SYSTEM_LAUNCH = Date.UTC(2026, 4, 15);
 const amount = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
 const cents = (value) => Math.round((amount(value) ?? 0) * 100);
 function date(value) {
@@ -10,6 +11,7 @@ function date(value) {
 export function calculateBookingAnalytics(reservations, year) {
   const start = Date.UTC(year, 0, 1);
   const end = Date.UTC(year + 1, 0, 1);
+  const occupancyStart = year === 2026 ? BOOKING_SYSTEM_LAUNCH : start;
   const occupied = new Set();
   const financials = {};
   let bookingCount = 0;
@@ -19,9 +21,9 @@ export function calculateBookingAnalytics(reservations, year) {
     const arrival = date(reservation.arrival);
     const departure = date(reservation.departure);
     if (!(departure > arrival)) continue;
-    if (arrival < end && departure > start) {
+    if (arrival < end && departure > occupancyStart) {
       bookingCount++;
-      for (let night = Math.max(arrival, start); night < Math.min(departure, end); night += DAY) occupied.add(night);
+      for (let night = Math.max(arrival, occupancyStart); night < Math.min(departure, end); night += DAY) occupied.add(night);
     }
     if (arrival < start || arrival >= end) continue;
     const quote = reservation.quote || {};
@@ -36,5 +38,5 @@ export function calculateBookingAnalytics(reservations, year) {
     totals.due += imported && amount(quote.balanceDue) !== null ? cents(quote.balanceDue) : reservation.paymentStatus === "paid_in_full" ? 0 : Math.max(total - paid, 0);
   }
   for (const totals of Object.values(financials)) for (const key of Object.keys(totals)) totals[key] /= 100;
-  return { bookedDays: occupied.size, daysInYear: (end - start) / DAY, bookingCount, financials, missingFinancials };
+  return { bookedDays: occupied.size, daysInYear: (end - occupancyStart) / DAY, bookingCount, financials, missingFinancials };
 }
