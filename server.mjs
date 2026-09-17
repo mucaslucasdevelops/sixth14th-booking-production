@@ -74,6 +74,7 @@ createServer(async (req, res) => {
       await handleCronSendGoogleAdsConversions(req, res, url);
       return;
     }
+    rewriteAdminDataPath(url);
     if (requiresStagingAuth(req, url) && !isAuthorized(req)) {
       requestStagingAuth(res);
       return;
@@ -97,6 +98,16 @@ createServer(async (req, res) => {
   const displayHost = host === "0.0.0.0" ? "localhost" : host;
   console.log(`Sixth 14th booking app running at http://${displayHost}:${port}`);
 });
+
+function rewriteAdminDataPath(url) {
+  if (url.pathname === "/admin-data/status") {
+    url.pathname = "/api/staging/status";
+    return;
+  }
+  if (url.pathname.startsWith("/admin-data/")) {
+    url.pathname = `/api/admin/${url.pathname.slice("/admin-data/".length)}`;
+  }
+}
 
 async function routeApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/config") {
@@ -915,2563 +926,601 @@ async function sendEmailMessage(message) {
   }
 
   if (process.env.RESEND_API_KEY) {
-    return sendResendEmail(message);
-  }
-
-  if (smtpConfigured()) {
-    return sendSmtpEmail(message);
-  }
-
-  return {
-    status: "failed",
-    provider: emailProviderName(),
-    error: "Email sending is enabled, but no email provider is configured."
-  };
+    return sendResendEmail(message)…31999 tokens truncated…elector("[data-action='preview-template']").addEventListener("click", (event) => previewMessageTemplate(event, message.id));
+  item.querySelector("[data-action='send-template-test']").addEventListener("click", (event) => sendMessageTemplateTest(event, message.id));
+  return item;
 }
 
-async function sendGmailEmail(message) {
-  try {
-    const token = await fetchGoogleAccessToken();
-    const user = encodeURIComponent(process.env.GMAIL_OAUTH_USER || "me");
-    const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/${user}/messages/send`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        raw: base64UrlEncode(buildMimeMessage(message))
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return {
-        status: "failed",
-        provider: "gmail",
-        error: data.error?.message || "Gmail could not send the message."
-      };
-    }
-    return {
-      status: "sent",
-      provider: "gmail",
-      providerId: data.id || null,
-      detail: "Email sent."
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      provider: "gmail",
-      error: safeEmailError(error)
-    };
-  }
-}
-
-async function fetchGoogleAccessToken() {
-  const body = new URLSearchParams({
-    client_id: process.env.GMAIL_OAUTH_CLIENT_ID || "",
-    client_secret: process.env.GMAIL_OAUTH_CLIENT_SECRET || "",
-    refresh_token: process.env.GMAIL_OAUTH_REFRESH_TOKEN || "",
-    grant_type: "refresh_token"
-  });
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.access_token) {
-    throw new Error(data.error_description || data.error || "Gmail OAuth token exchange failed.");
-  }
-  return data.access_token;
-}
-
-async function syncReservationCalendarEvent(reservation) {
-  if (!calendarSyncEnabled() || !shouldHaveCalendarEvent(reservation)) return null;
-  try {
-    const token = await fetchGoogleAccessToken();
-    const calendarId = encodeURIComponent(calendarTargetId());
-    const event = buildReservationCalendarEvent(reservation);
-    const existingId = reservation.googleCalendarEvent?.id;
-    const url = existingId
-      ? `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodeURIComponent(existingId)}?sendUpdates=all`
-      : `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?sendUpdates=all`;
-    const response = await fetch(url, {
-      method: existingId ? "PATCH" : "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(event)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.error?.message || "Google Calendar could not save the booking event.");
-    }
-    await mutateReservation(reservation.id, (item) => {
-      item.googleCalendarEvent = {
-        id: data.id || existingId || null,
-        htmlLink: data.htmlLink || item.googleCalendarEvent?.htmlLink || "",
-        status: "synced",
-        calendarId: calendarTargetId(),
-        attendee: calendarInviteEmail(),
-        updatedAt: new Date().toISOString(),
-        error: null
-      };
-    });
-    await appendAuditEvent("calendar.event_synced", `Synced calendar event for ${reservation.guest?.name || "Guest"}`, {
-      reservationId: reservation.id,
-      calendarId: calendarTargetId(),
-      eventId: data.id || existingId || null
-    });
-    return data;
-  } catch (error) {
-    await mutateReservation(reservation.id, (item) => {
-      item.googleCalendarEvent = {
-        ...(item.googleCalendarEvent || {}),
-        status: "failed",
-        calendarId: calendarTargetId(),
-        attendee: calendarInviteEmail(),
-        updatedAt: new Date().toISOString(),
-        error: safeEmailError(error)
-      };
-    }).catch(() => {});
-    await appendAuditEvent("calendar.event_failed", `Calendar event failed for ${reservation.guest?.name || "Guest"}`, {
-      reservationId: reservation.id,
-      error: safeEmailError(error)
-    }).catch(() => {});
-    console.error(`Calendar sync failed: ${safeEmailError(error)}`);
-    return null;
-  }
-}
-
-async function deleteReservationCalendarEvent(reservation) {
-  const eventId = reservation?.googleCalendarEvent?.id;
-  if (!calendarSyncEnabled() || !eventId) return null;
-  try {
-    const token = await fetchGoogleAccessToken();
-    const calendarId = encodeURIComponent(reservation.googleCalendarEvent.calendarId || calendarTargetId());
-    const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodeURIComponent(eventId)}?sendUpdates=all`, {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${token}` }
-    });
-    if (!response.ok && response.status !== 410 && response.status !== 404) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error?.message || "Google Calendar could not delete the booking event.");
-    }
-    await mutateReservation(reservation.id, (item) => {
-      item.googleCalendarEvent = {
-        ...(item.googleCalendarEvent || {}),
-        status: "deleted",
-        deletedAt: new Date().toISOString(),
-        error: null
-      };
-    });
-    await appendAuditEvent("calendar.event_deleted", `Deleted calendar event for ${reservation.guest?.name || "Guest"}`, {
-      reservationId: reservation.id,
-      eventId
-    });
-    return true;
-  } catch (error) {
-    await appendAuditEvent("calendar.event_delete_failed", `Calendar event delete failed for ${reservation.guest?.name || "Guest"}`, {
-      reservationId: reservation.id,
-      eventId,
-      error: safeEmailError(error)
-    }).catch(() => {});
-    console.error(`Calendar delete failed: ${safeEmailError(error)}`);
-    return null;
-  }
-}
-
-function buildReservationCalendarEvent(reservation) {
-  const guest = reservation.guest || {};
-  const currency = reservation.quote?.currency || "USD";
-  const balance = remainingBalance(reservation);
-  const summary = `${guest.name || "Guest"} - Sixth & 14th stay`;
-  const description = [
-    `Reservation: ${reservation.id}`,
-    `Guest: ${guest.name || "Guest"}`,
-    `Email: ${guest.email || ""}`,
-    `Phone: ${guest.phone || ""}`,
-    `Guests: ${guest.guests || ""}`,
-    `Dates: ${reservationDateRange(reservation)}`,
-    `Status: ${reservation.status || ""}`,
-    `Payment: ${reservation.paymentStatus || ""}`,
-    `Total: ${formatCurrency(reservation.quote?.total, currency)}`,
-    `Balance remaining: ${formatCurrency(balance, currency)}`,
-    guest.notes ? `Notes: ${guest.notes}` : ""
-  ].filter(Boolean).join("\n");
-  return {
-    summary,
-    description,
-    location: "531 Sixth Avenue, Brooklyn, NY",
-    start: { date: reservation.arrival },
-    end: { date: reservation.departure },
-    attendees: [{ email: calendarInviteEmail() }],
-    reminders: { useDefault: true },
-    extendedProperties: {
-      private: {
-        reservationId: reservation.id,
-        source: "sixth14th-booking"
-      }
-    }
-  };
-}
-
-function shouldHaveCalendarEvent(reservation) {
-  if (!reservation || reservation.source === "lodgify") return false;
-  if (!reservation.arrival || !reservation.departure) return false;
-  if (reservation.archivedAt) return false;
-  return ["booked", "demo_hold"].includes(reservation.status);
-}
-
-function buildMimeMessage(message) {
-  const boundary = `sixth14th-${randomUUID()}`;
-  const headers = [
-    `From: ${message.from}`,
-    `To: ${message.to}`,
-    message.replyTo ? `Reply-To: ${message.replyTo}` : "",
-    `Subject: ${mimeHeader(message.subject || "")}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/alternative; boundary="${boundary}"`
-  ].filter(Boolean);
-  const text = message.text || stripHtml(message.html || "");
-  const html = message.html || escapeHtml(text).replace(/\n/g, "<br>");
-  return [
-    ...headers,
-    "",
-    `--${boundary}`,
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    text,
-    "",
-    `--${boundary}`,
-    'Content-Type: text/html; charset="UTF-8"',
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    html,
-    "",
-    `--${boundary}--`,
-    ""
-  ].join("\r\n");
-}
-
-function base64UrlEncode(value) {
-  return Buffer.from(value, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function mimeHeader(value) {
-  if (/^[\x20-\x7e]*$/.test(value)) return value;
-  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
-}
-
-function stripHtml(value) {
-  return String(value || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]+>/g, "").trim();
-}
-
-async function sendResendEmail(message) {
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        from: message.from,
-        to: [message.to],
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-        reply_to: message.replyTo
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return {
-        status: "failed",
-        provider: "resend",
-        error: data.message || data.error || "The email provider could not send the message."
-      };
-    }
-    return {
-      status: "sent",
-      provider: "resend",
-      providerId: data.id || null,
-      detail: "Email sent."
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      provider: "resend",
-      error: safeEmailError(error)
-    };
-  }
-}
-
-async function sendSmtpEmail(message) {
-  try {
-    const { default: nodemailer } = await import("nodemailer");
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: smtpSecure(),
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      }
-    });
-    const info = await transporter.sendMail({
-      from: message.from,
-      to: message.to,
-      replyTo: message.replyTo,
-      subject: message.subject,
-      text: message.text,
-      html: message.html
-    });
-    return {
-      status: "sent",
-      provider: "smtp",
-      providerId: info.messageId || null,
-      detail: "Email sent."
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      provider: "smtp",
-      error: safeEmailError(error)
-    };
-  }
-}
-
-function safeEmailError(error) {
-  return error?.message || "The email provider could not send the message.";
-}
-
-function depositEmailResultMessage(email) {
-  if (!email) return "Deposit link created.";
-  if (email.status === "sent") {
-    return "Deposit link created and emailed to the guest.";
-  }
-  if (email.status === "failed") {
-    return "Deposit link created, but the email could not be sent. Use the saved link in Admin.";
-  }
-  return "Deposit link created. Email is ready, but sending is disabled.";
-}
-
-function balanceEmailResultMessage(email) {
-  if (!email) return "Balance link created.";
-  if (email.status === "sent") {
-    return "Balance link created and emailed to the guest.";
-  }
-  if (email.status === "failed") {
-    return "Balance link created, but the email could not be sent. Use the saved link in Admin.";
-  }
-  return "Balance link created. Email is ready, but sending is disabled.";
-}
-
-async function handleStripeWebhook(req, res) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
-    sendJson(res, 400, { error: "Stripe webhook secret is not configured." });
-    return;
-  }
-  const rawBody = await readRawBody(req);
-  const signature = req.headers["stripe-signature"];
-  if (!verifyStripeSignature(rawBody, signature, secret)) {
-    sendJson(res, 400, { error: "Invalid Stripe signature." });
-    return;
-  }
-  const event = JSON.parse(rawBody.toString("utf8"));
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-    const bookingId = session.metadata?.booking_id;
-    if (bookingId) {
-      const paymentType = session.metadata?.payment_type || "deposit";
-      const updated = await markCheckoutSessionCompleted(bookingId, session, paymentType);
-      if (paymentType === "deposit") {
-        await preparePurchaseConversionRecordSafe(updated, session);
-      }
-      await syncReservationCalendarEvent(updated);
-      await appendAuditEvent(paymentType === "balance" ? "payment.balance_paid" : "payment.deposit_paid", `${paymentType === "balance" ? "Balance" : "Deposit"} paid by ${updated.guest?.name || "Guest"}`, {
-        reservationId: updated.id,
-        amountPaid: updated.amountPaid,
-        paymentStatus: updated.paymentStatus
-      });
-      await notifyOwner(paymentType === "balance" ? "Balance paid" : "Deposit paid", [
-        `${updated.guest?.name || "Guest"} paid ${paymentType === "balance" ? "the balance" : "a deposit"}.`,
-        `Dates: ${reservationDateRange(updated)}`,
-        `Payment status: ${updated.paymentStatus}`,
-        `Amount paid total: ${formatCurrency(updated.amountPaid, updated.quote?.currency)}`
-      ], updated);
-    }
-  }
-  sendJson(res, 200, { received: true });
-}
-
-async function markCheckoutSessionCompleted(bookingId, session, paymentType) {
-  const paidAmount = centsToDollars(session.amount_total || 0);
-  const completedAt = new Date().toISOString();
-  return mutateReservation(bookingId, (reservation) => {
-    const total = Number(reservation.quote?.total || 0);
-
-    if (paymentType === "balance") {
-      const alreadyApplied = reservation.balanceStripePaymentIntentId === session.payment_intent;
-      reservation.balanceCheckoutSessionId = reservation.balanceCheckoutSessionId || session.id;
-      reservation.balanceStripeCheckoutSessionId = session.id;
-      reservation.balanceStripePaymentIntentId = session.payment_intent;
-      reservation.balancePaidAt = reservation.balancePaidAt || completedAt;
-      reservation.holdExpiresAt = null;
-      reservation.status = "booked";
-      if (!alreadyApplied) {
-        reservation.amountPaid = roundMoney(Math.min(total, Number(reservation.amountPaid || 0) + paidAmount));
-      }
-      reservation.paymentStatus = "paid_in_full";
-      return;
-    }
-
-    reservation.status = "booked";
-    reservation.stripeCheckoutSessionId = session.id;
-    reservation.stripePaymentIntentId = session.payment_intent;
-    reservation.holdExpiresAt = null;
-    if (reservation.paymentStatus !== "paid_in_full") {
-      reservation.amountPaid = paidAmount;
-      reservation.paymentStatus = paidAmount >= total ? "paid_in_full" : "deposit_paid";
-    }
-  });
-}
-
-async function preparePurchaseConversionRecordSafe(reservation, session) {
-  try {
-    const record = await preparePurchaseConversionRecord(reservation, session);
-    await appendAuditEvent("ads.purchase_conversion_prepared", `Prepared purchase conversion for ${reservation.guest?.name || "Guest"}`, {
-      reservationId: reservation.id,
-      deliveryStatus: record.deliveryStatus,
-      clickIdType: record.googleClickIdType || null
-    });
-    return record;
-  } catch (error) {
-    console.error(`Purchase conversion preparation failed: ${safeEmailError(error)}`);
-    await appendAuditEvent("ads.purchase_conversion_failed", `Purchase conversion preparation failed for ${reservation.guest?.name || "Guest"}`, {
-      reservationId: reservation.id,
-      error: safeEmailError(error)
-    }).catch(() => {});
-    return null;
-  }
-}
-
-async function preparePurchaseConversionRecord(reservation, session) {
-  let preparedRecord;
-  await updateReservationStore((store) => {
-    const conversions = Array.isArray(store.googleAdsPurchaseConversions) ? store.googleAdsPurchaseConversions : [];
-    const existing = conversions.find((item) => item?.bookingId === reservation.id);
-    if (existing) {
-      preparedRecord = existing;
-      store.googleAdsPurchaseConversions = conversions;
-      return existing;
-    }
-
-    const click = availableGoogleClickId(reservation.attribution);
-    const now = new Date().toISOString();
-    preparedRecord = {
-      id: randomUUID(),
-      bookingId: reservation.id,
-      orderId: reservation.id,
-      conversionAction: "purchase",
-      value: roundMoney(Number(reservation.quote?.total || 0)),
-      currency: "USD",
-      googleClickId: click.value || null,
-      googleClickIdType: click.type || null,
-      conversionTimestamp: now,
-      deliveryStatus: click.value ? "pending_delivery" : "skipped_no_click_id",
-      deliveryAttempts: 0,
-      stripeCheckoutSessionId: session.id || null,
-      stripePaymentIntentId: session.payment_intent || null,
-      attribution: safeAttributionFields(reservation.attribution),
-      createdAt: now,
-      updatedAt: now
-    };
-    conversions.push(preparedRecord);
-    store.googleAdsPurchaseConversions = conversions;
-    addAuditEvent(store, "ads.purchase_conversion_recorded", "Recorded prepared Google Ads purchase conversion", {
-      reservationId: reservation.id,
-      orderId: reservation.id,
-      deliveryStatus: preparedRecord.deliveryStatus,
-      clickIdType: preparedRecord.googleClickIdType
-    });
-    return preparedRecord;
-  });
-  return preparedRecord;
-}
-
-async function sendGoogleAdsPurchaseConversions({ dryRun = false } = {}) {
-  const config = googleAdsDeliveryConfig();
-  const store = await readReservations();
-  const conversions = Array.isArray(store.googleAdsPurchaseConversions) ? store.googleAdsPurchaseConversions : [];
-  const pending = conversions.filter(shouldAttemptGoogleAdsDelivery);
-
-  if (!pending.length) {
-    return {
-      configured: googleAdsDeliveryConfigured(config),
-      dryRun,
-      sent: 0,
-      failed: 0,
-      skipped: 0,
-      pending: 0,
-      message: "No Google Ads purchase conversions are pending delivery."
-    };
-  }
-
-  if (!googleAdsDeliveryConfigured(config)) {
-    return {
-      configured: false,
-      dryRun,
-      sent: 0,
-      failed: 0,
-      skipped: 0,
-      pending: pending.length,
-      message: "Google Ads delivery is not configured."
-    };
-  }
-
-  const uploadConversions = pending.map((record) => buildGoogleAdsClickConversion(record, config));
-
-  if (dryRun) {
-    return {
-      configured: true,
-      dryRun: true,
-      sent: 0,
-      failed: 0,
-      skipped: 0,
-      pending: pending.length,
-      request: {
-        customerId: config.customerId,
-        conversions: uploadConversions,
-        partialFailure: true,
-        validateOnly: true
-      },
-      message: "Dry run only. No Google Ads API call was made."
-    };
-  }
-
-  const accessToken = await fetchGoogleAdsAccessToken(config);
-  const response = await uploadGoogleAdsClickConversions(config, accessToken, uploadConversions);
-  const resultStatuses = googleAdsUploadResultStatuses(pending, response);
-  const now = new Date().toISOString();
-  let sent = 0;
-  let failed = 0;
-
-  await updateReservationStore((storeToUpdate) => {
-    const existing = Array.isArray(storeToUpdate.googleAdsPurchaseConversions)
-      ? storeToUpdate.googleAdsPurchaseConversions
-      : [];
-    for (const status of resultStatuses) {
-      const record = existing.find((item) => item?.id === status.id || item?.bookingId === status.bookingId);
-      if (!record) continue;
-      record.deliveryAttempts = Number(record.deliveryAttempts || 0) + 1;
-      record.lastDeliveryAttemptAt = now;
-      record.googleAdsJobId = response.jobId || response.job_id || null;
-      record.updatedAt = now;
-      if (status.delivered) {
-        sent += 1;
-        record.deliveryStatus = "delivered";
-        record.deliveredAt = now;
-        record.googleAdsResult = status.result;
-        record.deliveryError = null;
-      } else {
-        failed += 1;
-        record.deliveryStatus = "delivery_failed";
-        record.deliveryError = status.error || response.partialFailureError?.message || response.partial_failure_error?.message || "Google Ads upload did not return a successful result for this conversion.";
-      }
-    }
-    storeToUpdate.googleAdsPurchaseConversions = existing;
-    addAuditEvent(storeToUpdate, "ads.purchase_conversion_delivery", "Sent Google Ads purchase conversion batch", {
-      sent,
-      failed,
-      jobId: response.jobId || response.job_id || null
-    });
-  });
-
-  return {
-    configured: true,
-    dryRun: false,
-    sent,
-    failed,
-    skipped: 0,
-    pending: Math.max(pending.length - sent - failed, 0),
-    jobId: response.jobId || response.job_id || null,
-    partialFailureError: response.partialFailureError || response.partial_failure_error || null,
-    message: failed
-      ? `Delivered ${sent} Google Ads conversion${sent === 1 ? "" : "s"}; ${failed} failed.`
-      : `Delivered ${sent} Google Ads conversion${sent === 1 ? "" : "s"}.`
-  };
-}
-
-function shouldAttemptGoogleAdsDelivery(record) {
-  if (!record || !record.googleClickId || !record.googleClickIdType) return false;
-  if (!["pending_delivery", "delivery_failed"].includes(record.deliveryStatus)) return false;
-  return Number(record.deliveryAttempts || 0) < 5;
-}
-
-function googleAdsDeliveryConfig() {
-  const customerId = normalizeGoogleAdsCustomerId(process.env.GOOGLE_ADS_CUSTOMER_ID);
-  const conversionActionId = normalizeGoogleAdsCustomerId(process.env.GOOGLE_ADS_PURCHASE_CONVERSION_ACTION_ID);
-  return {
-    apiVersion: process.env.GOOGLE_ADS_API_VERSION || "v25",
-    customerId,
-    loginCustomerId: normalizeGoogleAdsCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID),
-    developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "",
-    oauthClientId: process.env.GOOGLE_ADS_OAUTH_CLIENT_ID || "",
-    oauthClientSecret: process.env.GOOGLE_ADS_OAUTH_CLIENT_SECRET || "",
-    oauthRefreshToken: process.env.GOOGLE_ADS_OAUTH_REFRESH_TOKEN || "",
-    conversionActionResourceName: customerId && conversionActionId
-      ? `customers/${customerId}/conversionActions/${conversionActionId}`
-      : ""
-  };
-}
-
-function googleAdsDeliveryConfigured(config = googleAdsDeliveryConfig()) {
-  return Boolean(
-    config.customerId &&
-    config.developerToken &&
-    config.oauthClientId &&
-    config.oauthClientSecret &&
-    config.oauthRefreshToken &&
-    config.conversionActionResourceName
-  );
-}
-
-function buildGoogleAdsClickConversion(record, config = googleAdsDeliveryConfig()) {
-  const conversion = {
-    conversionAction: config.conversionActionResourceName,
-    conversionDateTime: googleAdsDateTime(record.conversionTimestamp),
-    conversionValue: Number(record.value || 0),
-    currencyCode: record.currency || "USD",
-    orderId: record.orderId || record.bookingId
-  };
-  if (record.googleClickIdType === "gbraid") {
-    conversion.gbraid = record.googleClickId;
-  } else if (record.googleClickIdType === "wbraid") {
-    conversion.wbraid = record.googleClickId;
-  } else {
-    conversion.gclid = record.googleClickId;
-  }
-  return conversion;
-}
-
-async function fetchGoogleAdsAccessToken(config = googleAdsDeliveryConfig()) {
-  const body = new URLSearchParams({
-    client_id: config.oauthClientId,
-    client_secret: config.oauthClientSecret,
-    refresh_token: config.oauthRefreshToken,
-    grant_type: "refresh_token"
-  });
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.access_token) {
-    throw new Error(data.error_description || data.error || "Google Ads OAuth token exchange failed.");
-  }
-  return data.access_token;
-}
-
-async function uploadGoogleAdsClickConversions(config, accessToken, conversions) {
-  const response = await fetch(`https://googleads.googleapis.com/${config.apiVersion}/customers/${config.customerId}:uploadClickConversions`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-      "developer-token": config.developerToken,
-      ...(config.loginCustomerId ? { "login-customer-id": config.loginCustomerId } : {})
-    },
-    body: JSON.stringify({
-      conversions,
-      partialFailure: true
-    })
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error?.message || data.message || `Google Ads upload failed with status ${response.status}.`);
-  }
-  return data;
-}
-
-function googleAdsUploadResultStatuses(records, response = {}) {
-  const results = Array.isArray(response.results) ? response.results : [];
-  const partialErrorMessage = response.partialFailureError?.message || response.partial_failure_error?.message || "";
-  return records.map((record, index) => {
-    const result = results[index] || {};
-    const delivered = Boolean(result.conversionDateTime || result.conversion_date_time || result.conversionAction || result.conversion_action);
-    return {
-      id: record.id,
-      bookingId: record.bookingId,
-      delivered,
-      result,
-      error: delivered ? null : partialErrorMessage
-    };
-  });
-}
-
-function verifyStripeSignature(rawBody, signature, secret) {
-  if (!signature) return false;
-  const parts = Object.fromEntries(signature.split(",").map((part) => part.split("=")));
-  if (!parts.t || !parts.v1) return false;
-  const signedPayload = `${parts.t}.${rawBody.toString("utf8")}`;
-  const expected = createHmac("sha256", secret).update(signedPayload).digest("hex");
-  const received = Buffer.from(parts.v1, "hex");
-  const computed = Buffer.from(expected, "hex");
-  return received.length === computed.length && timingSafeEqual(received, computed);
-}
-
-async function createManualBlock(payload) {
-  const start = required(payload.start, "Block start");
-  const end = required(payload.end, "Block end");
-  assertDateRange(start, end);
-  let block;
-  await updateReservationStore((store) => {
-    block = {
-      id: randomUUID(),
-      start,
-      end,
-      reason: String(payload.reason || "Manual block"),
-      createdAt: new Date().toISOString()
-    };
-    store.manualBlocks.push(block);
-    addAuditEvent(store, "calendar.block_created", `Blocked ${start} to ${end}`, {
-      blockId: block.id,
-      reason: block.reason
-    });
-    return block;
-  });
-  return block;
-}
-
-async function updateManualBlock(id, patch) {
-  const payload = plainObject(patch);
-  let updatedBlock;
-  await updateReservationStore((store) => {
-    const block = (store.manualBlocks || []).find((item) => item?.id === id);
-    if (!block) {
-      throw userError("Manual block not found.", 404);
-    }
-    if (payload.start !== undefined || payload.end !== undefined) {
-      const start = required(payload.start || block.start, "Block start");
-      const end = required(payload.end || block.end, "Block end");
-      assertDateRange(start, end);
-      block.start = start;
-      block.end = end;
-    }
-    if (payload.reason !== undefined) {
-      block.reason = cleanText(payload.reason || "Manual block", 180);
-    }
-    if (payload.archived === true && !block.archivedAt) {
-      block.archivedAt = new Date().toISOString();
-      block.archiveReason = cleanText(payload.archiveReason || "Archived from Admin", 180);
-    }
-    if (payload.archived === false) {
-      block.archivedAt = null;
-      block.archiveReason = "";
-    }
-    block.updatedAt = new Date().toISOString();
-    updatedBlock = block;
-    addAuditEvent(store, block.archivedAt ? "calendar.block_archived" : "calendar.block_updated", `${block.archivedAt ? "Archived" : "Updated"} block ${block.start} to ${block.end}`, {
-      blockId: block.id,
-      reason: block.reason,
-      archivedAt: block.archivedAt || null
-    });
-    return block;
-  });
-  return updatedBlock;
-}
-
-async function deleteManualBlock(id) {
-  let deletedBlock;
-  await updateReservationStore((store) => {
-    const index = (store.manualBlocks || []).findIndex((item) => item?.id === id);
-    if (index === -1) {
-      throw userError("Manual block not found.", 404);
-    }
-    deletedBlock = store.manualBlocks.splice(index, 1)[0];
-    addAuditEvent(store, "calendar.block_deleted", `Deleted block ${deletedBlock.start} to ${deletedBlock.end}`, {
-      blockId: deletedBlock.id,
-      reason: deletedBlock.reason
-    });
-    return deletedBlock;
-  });
-  return deletedBlock;
-}
-
-async function syncLodgify() {
-  const hasLodgifyApiKey = Boolean(process.env.LODGIFY_API_KEY);
-  const hasLodgifyIcalUrl = Boolean(process.env.LODGIFY_ICAL_URL);
-
-  if (!hasLodgifyApiKey && !hasLodgifyIcalUrl) {
-    throw userError("Lodgify sync is not configured. Add the Lodgify iCal export URL.");
-  }
-
-  const settings = await readSettings();
-  try {
-    let syncResult;
-    await updateReservationStore(async (store) => {
-        syncResult = await syncLodgifyData(store, {
-          apiKey: process.env.LODGIFY_API_KEY || "",
-          months: Number(process.env.LODGIFY_SYNC_MONTHS || 12) || 12,
-          apiBaseUrl: process.env.LODGIFY_API_BASE_URL,
-          propertyId: process.env.LODGIFY_PROPERTY_ID || settings.business?.lodgifyPropertyId,
-          roomTypeId: process.env.LODGIFY_ROOM_TYPE_ID || settings.business?.lodgifyRoomTypeId,
-        iCalUrl: process.env.LODGIFY_ICAL_URL
-      });
-      replaceStoreContents(store, syncResult.store);
-      addAuditEvent(store, "lodgify.synced", "Synced Lodgify calendar", {
-        importedBookings: syncResult.importedBookings,
-        availabilityBlocks: syncResult.availabilityBlocks,
-        warnings: syncResult.warnings || []
-      });
-      return syncResult;
-    });
-    return {
-      importedBookings: syncResult.importedBookings,
-      availabilityBlocks: syncResult.availabilityBlocks,
-      syncedAt: syncResult.syncedAt,
-      warnings: syncResult.warnings || []
-    };
-  } catch (error) {
-    console.error(error);
-    throw userError(error.safeMessage || "Lodgify sync failed. Check the Lodgify API key or iCal URL and try again.", 502);
-  }
-}
-
-async function updateReservation(id, patch) {
-  const updated = await mutateReservation(id, (reservation) => {
-    Object.assign(
-      reservation,
-      pick(patch, [
-        "status",
-        "paymentStatus",
-        "holdExpiresAt",
-        "stripeCheckoutSessionId",
-        "stripeCheckoutUrl",
-        "stripePaymentIntentId",
-        "balanceCheckoutSessionId",
-        "balanceCheckoutUrl",
-        "balanceStripeCheckoutSessionId",
-        "balanceStripePaymentIntentId",
-        "balanceDueCreatedAt",
-        "balancePaidAt",
-        "balanceEmail",
-        "amountPaid",
-        "archivedAt",
-        "archiveReason"
-      ])
-    );
-    if (patch.archived === true && !reservation.archivedAt) {
-      reservation.archivedAt = new Date().toISOString();
-    }
-    if (patch.archived === false) {
-      reservation.archivedAt = null;
-      reservation.archiveReason = "";
-    }
-  });
-  await appendAuditEvent(updated.archivedAt ? "booking.archived" : "booking.updated", `${updated.archivedAt ? "Archived" : "Updated"} reservation for ${updated.guest?.name || "Guest"}`, {
-    reservationId: updated.id,
-    status: updated.status,
-    paymentStatus: updated.paymentStatus,
-    archivedAt: updated.archivedAt || null
-  });
-  if (["canceled", "declined"].includes(updated.status) || ["canceled", "declined"].includes(updated.paymentStatus)) {
-    await deleteReservationCalendarEvent(updated);
-    await notifyOwner("Booking canceled or released", [
-      `${updated.guest?.name || "Guest"} was updated to ${updated.status}/${updated.paymentStatus}.`,
-      `Dates: ${reservationDateRange(updated)}`
-    ], updated);
-  } else {
-    await syncReservationCalendarEvent(updated);
-  }
-  return updated;
-}
-
-async function deleteReservation(id) {
-  const reservationForCalendar = await findReservation(id);
-  await deleteReservationCalendarEvent(reservationForCalendar);
-  let deletedReservation;
-  await updateReservationStore((store) => {
-    const index = (store.reservations || []).findIndex((item) => item?.id === id);
-    if (index === -1) {
-      throw userError("Reservation not found.", 404);
-    }
-    const reservation = store.reservations[index];
-    if (reservation.source === "lodgify" || String(reservation.status || "").startsWith("lodgify_")) {
-      throw userError("Lodgify synced reservations cannot be deleted here. Remove or change them in Lodgify, then sync again.");
-    }
-    deletedReservation = store.reservations.splice(index, 1)[0];
-    store.messageQueue = (store.messageQueue || []).filter((delivery) => delivery?.reservationId !== id);
-    addAuditEvent(store, "booking.deleted", `Deleted reservation for ${deletedReservation.guest?.name || "Guest"}`, {
-      reservationId: deletedReservation.id,
-      status: deletedReservation.status,
-      paymentStatus: deletedReservation.paymentStatus,
-      dates: reservationDateRange(deletedReservation)
-    });
-    return deletedReservation;
-  });
-  return deletedReservation;
-}
-
-async function updateReservationGuest(id, patch) {
-  const payload = plainObject(patch);
-  let updatedReservation;
-  await updateReservationStore((store) => {
-    const reservation = store.reservations.find((item) => item?.id === id);
-    if (!reservation) {
-      throw userError("Reservation not found.", 404);
-    }
-    if (reservation.source === "lodgify" || String(reservation.status || "").startsWith("lodgify_")) {
-      throw userError("Lodgify synced reservations cannot be edited here.");
-    }
-    const existingGuest = plainObject(reservation.guest);
-    const guest = {
-      ...existingGuest,
-      name: cleanText(payload.name, 120),
-      email: normalizeEmailField(payload.email),
-      phone: cleanText(payload.phone, 40),
-      notes: cleanText(payload.notes, 1000)
-    };
-    if (!guest.name) {
-      throw userError("Guest name is required.");
-    }
-    if (guest.email && !guest.email.includes("@")) {
-      throw userError("Please enter a valid email address.");
-    }
-    reservation.guest = guest;
-    for (const delivery of store.messageQueue || []) {
-      if (delivery?.reservationId === id && !["sent", "skipped"].includes(delivery.status)) {
-        delivery.recipientName = guest.name;
-        delivery.recipientEmail = guest.email;
-      }
-    }
-    reservation.updatedAt = new Date().toISOString();
-    updatedReservation = reservation;
-    return reservation;
-  });
-  await appendAuditEvent("guest.updated", `Updated guest details for ${updatedReservation.guest?.name || "Guest"}`, {
-    reservationId: updatedReservation.id,
-    guestEmail: updatedReservation.guest?.email
-  });
-  await syncReservationCalendarEvent(updatedReservation);
-  return updatedReservation;
-}
-
-async function updateMessageTemplate(id, patch) {
-  const payload = plainObject(patch);
-  const updatedMessage = await updateSettingsStore((settings) => {
-    const messages = Array.isArray(settings.messages) ? settings.messages : [];
-    const message = messages.find((item) => item?.id === id);
-    if (!message) {
-      throw userError("Message template not found.", 404);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(payload, "subject")) {
-      message.subject = cleanText(payload.subject, 180);
-    }
-    if (Object.prototype.hasOwnProperty.call(payload, "body")) {
-      message.body = cleanText(payload.body, 5000);
-    }
-    if (Object.prototype.hasOwnProperty.call(payload, "enabled")) {
-      message.enabled = Boolean(payload.enabled);
-    }
-    if (Object.prototype.hasOwnProperty.call(payload, "sendOffset")) {
-      Object.assign(message, normalizeMessageTiming(payload.sendOffset));
-    }
-    message.subject = cleanText(message.subject || message.name || "Guest message", 180);
-    if (!message.body) {
-      throw userError("Message body is required.");
-    }
-
-    message.updatedAt = new Date().toISOString();
-    return message;
-  });
-  await appendAuditEvent("message_template.updated", `Updated message template: ${updatedMessage.name || id}`, {
-    messageId: id,
-    enabled: updatedMessage.enabled
-  });
-  return updatedMessage;
-}
-
-async function previewMessageTemplate(id, payload) {
-  const { message, reservation, settings } = await messageTemplateContext(id, payload?.reservationId);
-  const body = appendBookingDetailsFooter(renderMessageBody(message.body || "", reservation, settings), reservation, settings);
-  return {
-    to: reservation.guest?.email || "",
-    recipientName: reservation.guest?.name || "Guest",
-    subject: message.subject || message.name,
-    body,
-    messageName: message.name,
-    reservationId: reservation.id
-  };
-}
-
-async function sendMessageTemplateTest(id, payload) {
-  const preview = await previewMessageTemplate(id, payload);
-  const to = normalizeEmailField(payload?.email || ownerNotifyEmail());
-  if (!to || !to.includes("@")) {
-    throw userError("Test recipient email is required.");
-  }
-  const draft = {
-    to,
-    from: emailFromAddress(),
-    replyTo: emailReplyToAddress(),
-    subject: `[Test] ${preview.subject}`,
-    text: preview.body,
-    html: plainTextEmailHtml(preview.body)
-  };
-  const result = await sendEmailMessage(draft);
-  await appendAuditEvent("message_template.test_sent", `Sent test for ${preview.messageName}`, {
-    messageId: id,
-    reservationId: preview.reservationId,
-    to,
-    status: result.status,
-    error: result.error || null
-  });
-  return { ...result, to };
-}
-
-async function messageTemplateContext(id, reservationId) {
-  const settings = await readSettings();
-  const message = (settings.messages || []).find((item) => item?.id === id);
-  if (!message) {
-    throw userError("Message template not found.", 404);
-  }
-  const store = await readReservations();
-  const reservation = (store.reservations || []).find((item) => item.id === reservationId)
-    || (store.reservations || []).find((item) => shouldScheduleMessages(item))
-    || (store.reservations || []).find((item) => item.guest?.email);
-  if (!reservation) {
-    throw userError("No reservation is available for preview.");
-  }
-  return { message, reservation, settings };
-}
-
-function normalizeMessageTiming(sendOffset) {
-  const value = String(sendOffset || "");
-  const options = {
-    immediate: "booking_confirmed",
-    "-7d": "seven_days_before_arrival",
-    "-2d": "two_days_before_arrival",
-    "0d": "arrival_day",
-    checkout: "checkout_day",
-    "+2d": "two_days_after_departure"
-  };
-  if (!Object.prototype.hasOwnProperty.call(options, value)) {
-    throw userError("Choose a valid message timing.");
-  }
-  return { sendOffset: value, trigger: options[value] };
-}
-
-async function mutateReservation(id, mutator) {
-  let updatedReservation;
-  await updateReservationStore((store) => {
-    const reservation = store.reservations.find((item) => item.id === id);
-    if (!reservation) {
-      throw userError("Reservation not found.", 404);
-    }
-    mutator(reservation);
-    reservation.updatedAt = new Date().toISOString();
-    updatedReservation = reservation;
-    return reservation;
-  });
-  return updatedReservation;
-}
-
-async function findReservation(id) {
-  const store = await readReservations();
-  const reservation = store.reservations.find((item) => item.id === id);
-  if (!reservation) {
-    throw userError("Reservation not found.", 404);
-  }
-  return reservation;
-}
-
-async function findReservationForPaymentLink(link) {
-  const store = await readReservations();
-  const tokenField = link.type === "balance" ? "balancePaymentToken" : "depositPaymentToken";
-  const reservation = store.reservations.find((item) => item.id === link.id || item[tokenField] === link.id);
-  if (!reservation) {
-    throw userError("Reservation not found.", 404);
-  }
-  return reservation;
-}
-
-function reservationActionId(pathname, action) {
-  const parts = pathname.split("/");
-  if (parts.length !== 6 || parts[1] !== "api" || parts[2] !== "admin" || parts[3] !== "reservations") {
-    return "";
-  }
-  if (parts[5] !== action) {
-    return "";
-  }
-  return decodeURIComponent(parts[4]);
-}
-
-function reservationGuestActionId(pathname) {
-  const match = /^\/api\/admin\/reservations\/([^/]+)\/guest\/?$/.exec(pathname);
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-function manualBlockActionId(pathname) {
-  const match = /^\/api\/admin\/blocks\/([^/]+)\/?$/.exec(pathname);
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-function messageTemplateActionId(pathname) {
-  const match = /^\/api\/admin\/messages\/([^/]+)$/.exec(pathname);
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-function messageTemplateSubAction(pathname, action) {
-  const match = /^\/api\/admin\/messages\/([^/]+)\/([^/]+)$/.exec(pathname);
-  if (!match || match[2] !== action) return "";
-  return decodeURIComponent(match[1]);
-}
-
-function paymentLinkParts(pathname) {
-  const match = /^\/pay\/(deposit|balance)\/([^/]+)\/?$/.exec(pathname);
-  if (!match) return null;
-  return {
-    type: match[1],
-    id: decodeURIComponent(match[2])
-  };
-}
-
-function publicPaymentUrl(reservation, paymentType) {
-  const baseUrl = String(process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
-  if (!baseUrl || !reservation?.id) return "";
-  const token = paymentType === "balance" ? reservation.balancePaymentToken : reservation.depositPaymentToken;
-  const identifier = token || reservation.id;
-  return `${baseUrl}/pay/${paymentType}/${encodeURIComponent(identifier)}`;
-}
-
-function createPaymentToken() {
-  return randomUUID().replaceAll("-", "").slice(0, 12);
-}
-
-async function appendAuditEvent(action, summary, metadata = {}) {
-  await updateReservationStore((store) => {
-    addAuditEvent(store, action, summary, metadata);
-  });
-}
-
-function addAuditEvent(store, action, summary, metadata = {}) {
-  const events = Array.isArray(store.auditEvents) ? store.auditEvents : [];
-  events.unshift({
-    id: randomUUID(),
-    action,
-    summary,
-    metadata: plainObject(metadata),
-    createdAt: new Date().toISOString()
-  });
-  store.auditEvents = events.slice(0, 500);
-}
-
-function recentAuditEvents(store, limit = 50) {
-  return (Array.isArray(store.auditEvents) ? store.auditEvents : [])
-    .slice()
-    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
-    .slice(0, limit);
-}
-
-async function notifyOwner(subject, lines = [], reservation = null) {
-  if (!ownerNotificationsEnabled()) return null;
-  const to = ownerNotifyEmail();
-  if (!to) return null;
-
-  const textLines = [
-    String(subject || "Booking alert"),
-    "",
-    ...lines.filter(Boolean).map(String),
-    ...(reservation ? ["", bookingDetailsFooterText(reservation, { business: {}, rules: {}, pricing: reservation.quote || {} })] : [])
+function timingOptions(selected) {
+  const options = [
+    ["immediate", "When booking is confirmed"],
+    ["-7d", "7 days before arrival"],
+    ["-2d", "2 days before arrival"],
+    ["0d", "Arrival day"],
+    ["checkout", "Checkout day"],
+    ["+2d", "2 days after departure"]
   ];
-  const message = {
-    to,
-    from: emailFromAddress(),
-    replyTo: emailReplyToAddress(),
-    subject: `[Sixth & 14th] ${subject}`,
-    text: textLines.join("\n"),
-    html: plainTextEmailHtml(textLines.join("\n"))
+  return options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function timingLabel(value) {
+  const labels = {
+    immediate: "When booking is confirmed",
+    booking_confirmed: "When booking is confirmed",
+    "-7d": "7 days before arrival",
+    seven_days_before_arrival: "7 days before arrival",
+    "-2d": "2 days before arrival",
+    two_days_before_arrival: "2 days before arrival",
+    "0d": "Arrival day",
+    arrival_day: "Arrival day",
+    checkout: "Checkout day",
+    checkout_day: "Checkout day",
+    "+2d": "2 days after departure",
+    two_days_after_departure: "2 days after departure"
   };
-  const result = await sendEmailMessage(message);
-  if (result.status === "failed") {
-    console.error(`Owner notification failed: ${result.error || "Unknown email error"}`);
-  }
-  return result;
+  return labels[value] || value || "Timing not set";
 }
 
-function ownerNotificationsEnabled() {
-  return process.env.OWNER_NOTIFY_ENABLED === "true";
+function reservationPreviewOptions() {
+  const reservations = latestReservations
+    .filter((reservation) => reservation.guest?.email && reservation.source !== "lodgify")
+    .sort(compareArrival);
+  if (!reservations.length) {
+    return '<option value="">No guest reservations available</option>';
+  }
+  return reservations.map((reservation) => (
+    `<option value="${escapeHtml(reservation.id)}">${escapeHtml(reservation.guest?.name || "Guest")} · ${escapeHtml(formatDate(reservation.arrival))} to ${escapeHtml(formatDate(reservation.departure))}</option>`
+  )).join("");
 }
 
-function ownerNotifyEmail() {
-  return process.env.OWNER_NOTIFY_EMAIL || "marc@lucasand.co";
-}
-
-async function updateMessageDelivery(id, patch) {
-  const settings = await readSettings();
-  await refreshMessageQueue(settings);
-  let updatedDelivery;
-  await updateReservationStore((store) => {
-    const delivery = (store.messageQueue || []).find((item) => item.id === id);
-    if (!delivery) {
-      throw userError("Message delivery not found.", 404);
-    }
-    const status = String(patch.status || "");
-    if (!["scheduled", "due", "sent", "skipped"].includes(status)) {
-      throw userError("Choose a valid message status.");
-    }
-    delivery.status = status;
-    delivery.sentAt = status === "sent" ? new Date().toISOString() : null;
-    delivery.updatedAt = new Date().toISOString();
-    updatedDelivery = delivery;
-    addAuditEvent(store, "message.status_updated", `Marked ${delivery.messageName} ${status}`, {
-      deliveryId: delivery.id,
-      reservationId: delivery.reservationId,
-      status
-    });
-    return delivery;
-  });
-  return updatedDelivery;
-}
-
-async function sendDueMessageQueue() {
-  const settings = await readSettings();
-  const queue = await refreshMessageQueue(settings);
-  const dueMessages = queue.filter((delivery) => ["due", "failed"].includes(delivery.status));
-
-  if (!dueMessages.length) {
-    return {
-      sent: 0,
-      failed: 0,
-      ready: 0,
-      message: "No guest messages are due right now.",
-      queue
-    };
-  }
-
-  if (!emailSendingEnabled()) {
-    return {
-      sent: 0,
-      failed: 0,
-      ready: dueMessages.length,
-      message: emailProviderConfigured()
-        ? "Email sending is configured but turned off, so due messages remain queued."
-        : "Email sending is not configured yet, so due messages remain queued.",
-      queue
-    };
-  }
-
-  const attempts = [];
-  for (const delivery of dueMessages) {
-    const draft = buildScheduledMessageEmail(delivery);
-    const result = await sendEmailMessage(draft);
-    attempts.push({ deliveryId: delivery.id, draft, result });
-  }
-
-  let updatedQueue = [];
-  const failedAttempts = [];
-  await updateReservationStore((store) => {
-    const now = new Date().toISOString();
-    const deliveries = new Map((store.messageQueue || []).map((delivery) => [delivery.id, delivery]));
-    for (const attempt of attempts) {
-      const delivery = deliveries.get(attempt.deliveryId);
-      if (!delivery) continue;
-      delivery.email = buildEmailRecord(delivery.email, attempt.draft, attempt.result);
-      const reservation = (store.reservations || []).find((item) => item.id === delivery.reservationId);
-      appendReservationEmailLog(reservation, delivery.messageId || "scheduled_message", attempt.draft, attempt.result);
-      delivery.updatedAt = now;
-      delivery.lastAttemptAt = now;
-      if (attempt.result.status === "sent") {
-        delivery.status = "sent";
-        delivery.sentAt = now;
-      } else if (attempt.result.status === "failed") {
-        delivery.status = "failed";
-        delivery.error = attempt.result.error || "Email send failed.";
-        failedAttempts.push(delivery);
-      }
-      addAuditEvent(store, `message.${delivery.status}`, `${delivery.messageName} ${delivery.status} for ${delivery.recipientName || "Guest"}`, {
-        deliveryId: delivery.id,
-        reservationId: delivery.reservationId,
-        recipientEmail: delivery.recipientEmail,
-        error: delivery.error || null
-      });
-    }
-    updatedQueue = store.messageQueue || [];
-    return updatedQueue;
-  });
-
-  const sent = attempts.filter((attempt) => attempt.result.status === "sent").length;
-  const failed = attempts.filter((attempt) => attempt.result.status === "failed").length;
-  if (failedAttempts.length) {
-    await notifyOwner("Guest message send failed", failedAttempts.map((delivery) => (
-      `${delivery.messageName} for ${delivery.recipientName || "Guest"} <${delivery.recipientEmail || "missing"}>: ${delivery.error || "Unknown email error"}`
-    )));
-  }
-  return {
-    sent,
-    failed,
-    ready: 0,
-    message: failed
-      ? `Sent ${sent} guest message${sent === 1 ? "" : "s"}; ${failed} failed.`
-      : `Sent ${sent} guest message${sent === 1 ? "" : "s"}.`,
-    queue: updatedQueue
+async function saveMessageTemplate(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector("button[type='submit']");
+  const status = form.querySelector("[data-template-message]");
+  const payload = {
+    enabled: form.elements.enabled.checked,
+    sendOffset: form.elements.sendOffset.value,
+    subject: form.elements.subject.value,
+    body: form.elements.body.value
   };
-}
 
-async function handleCronSendDueMessages(req, res, url) {
-  if (req.method !== "POST") {
-    sendJson(res, 405, { error: "Use POST for this automation endpoint." });
-    return;
-  }
-  if (!process.env.CRON_SECRET) {
-    sendJson(res, 503, { error: "CRON_SECRET is not configured." });
-    return;
-  }
-  if (!isCronAuthorized(req, url)) {
-    sendJson(res, 401, { error: "Unauthorized." });
-    return;
-  }
+  submit.disabled = true;
+  submit.textContent = "Saving...";
+  status.textContent = "";
+  status.classList.remove("error");
 
-  const result = await sendDueMessageQueue();
-  sendJson(res, 200, {
-    ...result,
-    triggeredBy: "cron",
-    triggeredAt: new Date().toISOString()
-  });
-}
-
-async function handleCronSendGoogleAdsConversions(req, res, url) {
-  if (req.method !== "POST") {
-    sendJson(res, 405, { error: "Use POST for this automation endpoint." });
-    return;
-  }
-  if (!process.env.CRON_SECRET) {
-    sendJson(res, 503, { error: "CRON_SECRET is not configured." });
-    return;
-  }
-  if (!isCronAuthorized(req, url)) {
-    sendJson(res, 401, { error: "Unauthorized." });
-    return;
-  }
-
-  const result = await sendGoogleAdsPurchaseConversions({
-    dryRun: url.searchParams.get("dryRun") === "true" || process.env.GOOGLE_ADS_DELIVERY_DRY_RUN === "true"
-  });
-  sendJson(res, 200, {
-    ...result,
-    triggeredBy: "cron",
-    triggeredAt: new Date().toISOString()
-  });
-}
-
-function isCronAuthorized(req, url) {
-  const submitted = req.headers["x-cron-secret"]
-    || bearerToken(req.headers.authorization)
-    || url.searchParams.get("secret")
-    || "";
-  return safeEqualString(submitted, process.env.CRON_SECRET || "");
-}
-
-function bearerToken(header = "") {
-  return header.startsWith("Bearer ") ? header.slice(7) : "";
-}
-
-function buildScheduledMessageEmail(delivery) {
-  return {
-    to: delivery.recipientEmail,
-    from: emailFromAddress(),
-    replyTo: emailReplyToAddress(),
-    subject: delivery.subject || delivery.messageName,
-    text: delivery.body || "",
-    html: plainTextEmailHtml(delivery.body || "")
-  };
-}
-
-function plainTextEmailHtml(text) {
-  const paragraphs = String(text || "")
-    .split(/\n{2,}/)
-    .map((paragraph) => `<p>${linkifyEmailText(paragraph).replaceAll("\n", "<br>")}</p>`);
-  return paragraphs.join("\n");
-}
-
-function linkifyEmailText(text) {
-  const urlPattern = /https?:\/\/[^\s<]+/g;
-  let html = "";
-  let lastIndex = 0;
-  for (const match of String(text || "").matchAll(urlPattern)) {
-    const url = match[0];
-    html += escapeHtml(text.slice(lastIndex, match.index));
-    html += paymentButtonHtml(url) || `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
-    lastIndex = match.index + url.length;
-  }
-  html += escapeHtml(text.slice(lastIndex));
-  return html;
-}
-
-function paymentButtonHtml(url) {
-  let label = "";
-  if (/\/pay\/balance\//.test(url)) {
-    label = "Pay the remaining balance";
-  } else if (/\/pay\/deposit\//.test(url)) {
-    label = "Make your secure deposit";
-  }
-  if (!label) return "";
-  return `<a href="${escapeHtml(url)}" style="background:#2e4c3b;color:#ffffff;display:inline-block;padding:12px 18px;text-decoration:none;border-radius:6px;font-weight:700;">${escapeHtml(label)}</a>`;
-}
-
-async function replaceReservation(nextReservation) {
-  await updateReservationStore((store) => {
-    const index = store.reservations.findIndex((item) => item.id === nextReservation.id);
-    if (index !== -1) {
-      store.reservations[index] = nextReservation;
-    }
-  });
-}
-
-async function refreshMessageQueue(settings, now = new Date()) {
-  let queue = [];
-  await updateReservationStore((store) => {
-    queue = buildMessageQueue(store, settings, now);
-    store.messageQueue = queue;
-    return queue;
-  });
-  return queue;
-}
-
-async function refreshMessageQueueAfterGuestEdit(settings) {
   try {
-    return await refreshMessageQueue(settings);
+    await patchJson(`/api/admin/messages/${encodeURIComponent(id)}`, payload);
+    form.closest(".message-item")?.classList.toggle("disabled", !payload.enabled);
+    status.textContent = "Saved. Unsent scheduled messages were updated.";
+    await loadMessages();
+    await loadMessageQueue();
   } catch (error) {
-    console.error("Guest details were saved, but the message queue refresh failed.", error);
-    return [];
+    status.textContent = error.message;
+    status.classList.add("error");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Save template";
   }
 }
 
-function buildMessageQueue(store, settings, now) {
-  const existing = new Map((store.messageQueue || []).filter(Boolean).map((delivery) => [delivery.id, delivery]));
-  const messages = (settings.messages || []).filter((message) => message?.enabled);
-  const queue = [];
+async function previewMessageTemplate(event, id) {
+  const form = event.currentTarget.closest("form");
+  const status = form.querySelector("[data-template-message]");
+  const preview = form.querySelector("[data-template-preview]");
+  status.textContent = "";
+  status.classList.remove("error");
+  preview.hidden = true;
+  try {
+    const result = await postJson(`/api/admin/messages/${encodeURIComponent(id)}/preview`, {
+      reservationId: form.elements.reservationId.value
+    });
+    preview.textContent = `To: ${result.recipientName} <${result.to}>\nSubject: ${result.subject}\n\n${result.body}`;
+    preview.hidden = false;
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  }
+}
 
-  for (const reservation of store.reservations || []) {
-    if (!shouldScheduleMessages(reservation)) continue;
-    for (const message of messages) {
-      if (!shouldScheduleMessage(message, reservation)) continue;
-      const id = `${reservation.id}:${message.id}`;
-      const previous = existing.get(id);
-      const dueAt = messageDueAt(message, reservation);
-      const status = ["sent", "skipped", "failed"].includes(previous?.status)
-        ? previous.status
-        : new Date(dueAt).getTime() <= now.getTime() ? "due" : "scheduled";
-      const body = renderMessageBody(message.body || "", reservation, settings);
-      queue.push({
-        id,
-        reservationId: reservation.id,
-        messageId: message.id,
-        messageName: message.name,
-        status,
-        dueAt,
-        trigger: message.trigger,
-        recipientName: reservation.guest?.name || "Guest",
-        recipientEmail: reservation.guest?.email || "",
-        subject: message.subject || message.name,
-        body: appendBookingDetailsFooter(body, reservation, settings),
-        sentAt: status === "sent" ? previous?.sentAt || now.toISOString() : null,
-        createdAt: previous?.createdAt || now.toISOString(),
-        updatedAt: now.toISOString()
-      });
+async function sendMessageTemplateTest(event, id) {
+  const button = event.currentTarget;
+  const form = button.closest("form");
+  const status = form.querySelector("[data-template-message]");
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Sending...";
+  status.textContent = "";
+  status.classList.remove("error");
+  try {
+    const result = await postJson(`/api/admin/messages/${encodeURIComponent(id)}/test`, {
+      reservationId: form.elements.reservationId.value,
+      email: form.elements.testEmail.value
+    });
+    status.textContent = result.status === "sent"
+      ? `Test sent to ${result.to}.`
+      : `Test ready but not sent: ${result.detail || result.error || result.status}.`;
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+function renderMessageQueue(queue) {
+  const rows = [];
+  const head = document.createElement("div");
+  head.className = "message-head";
+  head.innerHTML = "<span>Guest</span><span>Message</span><span>Send timing</span><span>Status</span><span>Actions</span>";
+  rows.push(head);
+
+  for (const delivery of queue) {
+    const row = document.createElement("div");
+    row.className = "message-row";
+    row.dataset.deliveryId = delivery.id;
+    row.innerHTML = `
+      <div><strong>${escapeHtml(delivery.recipientName || "Guest")}</strong><br><span class="muted">${escapeHtml(delivery.recipientEmail || "")}</span></div>
+      <span>${escapeHtml(delivery.messageName)}</span>
+      <span>${escapeHtml(formatDateTime(delivery.dueAt))}</span>
+      <span class="status-pill">${escapeHtml(delivery.status)}</span>
+      <span class="row-actions">
+        <button type="button" class="text-button" data-action="preview-message">Preview</button>
+        ${messageComposeLink(delivery)}
+        ${["sent", "skipped"].includes(delivery.status) ? "" : '<button type="button" class="text-button" data-action="mark-message-sent">Mark sent</button>'}
+      </span>
+    `;
+    row.querySelector("[data-action='preview-message']").addEventListener("click", () => renderMessagePreview(delivery));
+    const markSent = row.querySelector("[data-action='mark-message-sent']");
+    if (markSent) {
+      markSent.addEventListener("click", () => markMessageSent(delivery.id, markSent));
     }
+    rows.push(row);
   }
 
-  return queue.sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.messageName.localeCompare(b.messageName));
+  if (rows.length === 1) {
+    const empty = document.createElement("div");
+    empty.className = "message-row";
+    empty.innerHTML = "<span>No guest messages are scheduled yet.</span><span></span><span></span><span></span><span></span>";
+    rows.push(empty);
+  }
+
+  els.messageQueue.replaceChildren(...rows);
 }
 
-function shouldScheduleMessages(reservation) {
-  if (!reservation || reservation.source === "lodgify") return false;
-  if (!reservation.guest?.email) return false;
-  return ["booked", "demo_hold"].includes(reservation.status);
-}
-
-function shouldScheduleMessage(message, reservation) {
-  if (["balance-due", "balance-reminder"].includes(message.id) && reservation.paymentStatus === "paid_in_full") {
-    return false;
-  }
-  return true;
-}
-
-function messageDueAt(message, reservation) {
-  const trigger = message.trigger || message.sendOffset;
-  if (trigger === "booking_confirmed" || message.sendOffset === "immediate") {
-    return reservation.updatedAt || reservation.createdAt || new Date().toISOString();
-  }
-  if (trigger === "seven_days_before_arrival" || message.sendOffset === "-7d") {
-    return dateAtUtcHour(addDaysIso(reservation.arrival, -7), 14);
-  }
-  if (trigger === "two_days_before_arrival" || message.sendOffset === "-2d") {
-    return dateAtUtcHour(addDaysIso(reservation.arrival, -2), 14);
-  }
-  if (trigger === "arrival_day" || message.sendOffset === "0d") {
-    return dateAtUtcHour(reservation.arrival, 19);
-  }
-  if (trigger === "checkout_day" || message.sendOffset === "checkout") {
-    return dateAtUtcHour(reservation.departure, 12);
-  }
-  if (trigger === "two_days_after_departure" || message.sendOffset === "+2d") {
-    return dateAtUtcHour(addDaysIso(reservation.departure, 2), 15);
-  }
-  return reservation.updatedAt || reservation.createdAt || new Date().toISOString();
-}
-
-function renderMessageBody(template, reservation, settings) {
-  const business = settings.business || {};
-  const currency = reservation.quote?.currency || settings.pricing?.currency || "USD";
-  const values = {
-    guestFirstName: firstName(reservation.guest?.name),
-    guestName: reservation.guest?.name || "Guest",
-    guestCount: String(reservation.guest?.guests || 1),
-    houseName: business.propertyName || business.siteName || "Sixth 14th",
-    housePhone: business.contactPhone || "the phone number in your confirmation email",
-    ownerName: business.ownerName || "Marc",
-    ownerUrl: business.ownerUrl || "",
-    arrivalDate: formatLongDate(reservation.arrival),
-    departureDate: formatLongDate(reservation.departure),
-    bookingDate: formatLongDate((reservation.createdAt || "").slice(0, 10)),
-    nights: String(reservation.quote?.nights || nightsBetween(reservation.arrival, reservation.departure)),
-    checkInTime: reservation.quote?.checkInTime || settings.rules?.checkInTime || "",
-    checkOutTime: reservation.quote?.checkOutTime || settings.rules?.checkOutTime || "",
-    totalAmount: formatCurrency(reservation.quote?.total, currency),
-    depositAmount: formatCurrency(reservation.quote?.depositDue, currency),
-    balanceAmount: formatCurrency(remainingBalance(reservation), currency),
-    bookingDetails: bookingDetailsText(reservation, settings),
-    balancePaymentLink: balancePaymentLinkText(reservation),
-    reviewLink: "Review link will be added here."
-  };
-  return String(template).replace(/{{\s*([A-Za-z0-9_]+)\s*}}/g, (_match, key) => values[key] ?? "");
-}
-
-function appendBookingDetailsFooter(body, reservation, settings) {
-  const text = String(body || "").trim();
-  const footer = bookingDetailsFooterText(reservation, settings);
-  if (!footer) return text;
-  if (text.includes("Booking details:")) return text;
-  return [text, footer].filter(Boolean).join("\n\n");
-}
-
-function bookingDetailsFooterText(reservation, settings) {
-  return ["Booking details:", bookingDetailsText(reservation, settings)].filter(Boolean).join("\n");
-}
-
-function bookingDetailsFooterHtml(reservation, settings) {
-  const details = bookingDetailsText(reservation, settings);
-  if (!details) return "";
-  const rows = details
-    .split("\n")
-    .map((line) => {
-      const separator = line.indexOf(":");
-      if (separator === -1) return `<tr><td colspan="2">${escapeHtml(line)}</td></tr>`;
-      const label = line.slice(0, separator);
-      const value = line.slice(separator + 1).trim();
-      return `<tr><th align="left" style="padding:3px 16px 3px 0;">${escapeHtml(label)}</th><td style="padding:3px 0;">${escapeHtml(value)}</td></tr>`;
-    })
-    .join("");
-  return `
-    <hr style="border:none;border-top:1px solid #dddddd;margin:24px 0 12px;">
-    <p><strong>Booking details</strong></p>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-      ${rows}
-    </table>
+function renderMessagePreview(delivery) {
+  els.messagePreview.innerHTML = `
+    <h2>${escapeHtml(delivery.messageName)}</h2>
+    <dl class="preview-meta">
+      <div><dt>To</dt><dd>${escapeHtml(delivery.recipientName)} &lt;${escapeHtml(delivery.recipientEmail)}&gt;</dd></div>
+      <div><dt>Subject</dt><dd>${escapeHtml(delivery.subject)}</dd></div>
+      <div><dt>Scheduled</dt><dd>${escapeHtml(formatDateTime(delivery.dueAt))}</dd></div>
+      <div><dt>Status</dt><dd>${escapeHtml(delivery.status)}</dd></div>
+    </dl>
+    ${messageComposeLink(delivery)}
+    <pre>${escapeHtml(delivery.body)}</pre>
   `;
 }
 
-function bookingDetailsText(reservation, settings) {
-  const quote = reservation.quote || {};
-  const currency = quote.currency || settings.pricing?.currency || "USD";
-  const lines = [
-    `Property: ${settings.business?.propertyName || settings.business?.siteName || "Sixth 14th"}`,
-    `Guest: ${reservation.guest?.name || "Guest"}`,
-    `Dates: ${formatLongDate(reservation.arrival)} to ${formatLongDate(reservation.departure)}`,
-    `Nights: ${quote.nights || nightsBetween(reservation.arrival, reservation.departure)}`,
-    `Guests: ${reservation.guest?.guests || 1}`,
-    `Check-in: ${quote.checkInTime || settings.rules?.checkInTime || ""}`,
-    `Check-out: ${quote.checkOutTime || settings.rules?.checkOutTime || ""}`,
-    `Total: ${formatCurrency(quote.total, currency)}`
-  ];
-  if (Number(quote.depositDue || 0) > 0) {
-    lines.push(`Deposit: ${formatCurrency(quote.depositDue, currency)}`);
-  }
-  if (remainingBalance(reservation) > 0) {
-    lines.push(`Balance remaining: ${formatCurrency(remainingBalance(reservation), currency)}`);
-  }
-  return lines.filter((line) => !line.endsWith(": ")).join("\n");
+function messageComposeLink(delivery) {
+  if (!delivery || ["sent", "skipped"].includes(delivery.status)) return "";
+  if (!delivery.recipientEmail || !delivery.body) return "";
+  const href = `mailto:${encodeURIComponent(delivery.recipientEmail)}?subject=${encodeURIComponent(delivery.subject || delivery.messageName)}&body=${encodeURIComponent(delivery.body)}`;
+  return `<a class="text-button" href="${escapeHtml(href)}">Compose email</a>`;
 }
 
-function balancePaymentLinkText(reservation) {
-  if (reservation.paymentStatus === "paid_in_full") {
-    return "Your balance is paid. No payment link is needed.";
+function renderAuditLog(events) {
+  const rows = [];
+  const head = document.createElement("div");
+  head.className = "audit-head";
+  head.innerHTML = "<span>Time</span><span>Event</span><span>Details</span>";
+  rows.push(head);
+
+  for (const event of events) {
+    const row = document.createElement("div");
+    row.className = "audit-row";
+    row.innerHTML = `
+      <span>${escapeHtml(formatDateTime(event.createdAt))}</span>
+      <div><strong>${escapeHtml(event.summary || event.action)}</strong><br><span class="muted">${escapeHtml(event.action || "")}</span></div>
+      <span>${escapeHtml(formatAuditMetadata(event.metadata))}</span>
+    `;
+    rows.push(row);
   }
-  return publicPaymentUrl(reservation, "balance")
-    || reservation.balanceCheckoutUrl
-    || "Balance payment link will be generated before sending.";
+
+  if (rows.length === 1) {
+    const empty = document.createElement("div");
+    empty.className = "audit-row";
+    empty.innerHTML = "<span>No audit events yet.</span><span></span><span></span>";
+    rows.push(empty);
+  }
+
+  els.auditLog.replaceChildren(...rows);
 }
 
-function firstName(name = "") {
-  return String(name).trim().split(/\s+/)[0] || "there";
+function formatAuditMetadata(metadata = {}) {
+  return Object.entries(metadata || {})
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+    .join(" · ");
 }
 
-function formatLongDate(iso) {
-  if (!isIsoDate(iso)) return "";
-  return parseDate(iso).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
+function paymentPageUrl(reservation, paymentType) {
+  const token = paymentType === "balance" ? reservation.balancePaymentToken : reservation.depositPaymentToken;
+  const identifier = token || reservation.id;
+  return `${window.location.origin}/pay/${paymentType}/${encodeURIComponent(identifier)}`;
+}
+
+async function copyPaymentLink(url, button) {
+  if (!url) return;
+  const label = button.textContent;
+  try {
+    await navigator.clipboard.writeText(url);
+    button.textContent = "Copied";
+    window.setTimeout(() => {
+      button.textContent = label;
+    }, 1500);
+  } catch {
+    window.prompt("Copy this payment link:", url);
+  }
+}
+
+async function addBlock(event) {
+  event.preventDefault();
+  setBlockMessage("Adding block...");
+  const form = new FormData(els.blockForm);
+  try {
+    await postJson("/api/admin/blocks", {
+      start: form.get("start"),
+      end: form.get("end"),
+      reason: form.get("reason")
+    });
+    els.blockForm.reset();
+    setBlockMessage("Block added.");
+    await loadReservations();
+  } catch (error) {
+    setBlockMessage(error.message, true);
+  }
+}
+
+async function editManualBlock(block) {
+  const start = window.prompt("Block start date", block.start || "");
+  if (start === null) return;
+  const end = window.prompt("Block end date", block.end || "");
+  if (end === null) return;
+  const reason = window.prompt("Block reason", block.reason || "Manual block");
+  if (reason === null) return;
+  try {
+    await patchJson(`/api/admin/blocks/${encodeURIComponent(block.id)}`, {
+      start: start.trim(),
+      end: end.trim(),
+      reason: reason.trim()
+    });
+    await loadReservations();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function deleteManualBlock(block) {
+  if (!window.confirm(`Delete this manual block and release ${formatDate(block.start)} to ${formatDate(block.end)}?`)) {
+    return;
+  }
+  try {
+    await deleteJson(`/api/admin/blocks/${encodeURIComponent(block.id)}`);
+    await loadReservations();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function archiveManualBlock(block, archived) {
+  const verb = archived ? "archive" : "unarchive";
+  if (!window.confirm(`${verb[0].toUpperCase()}${verb.slice(1)} this manual block?`)) {
+    return;
+  }
+  try {
+    await patchJson(`/api/admin/blocks/${encodeURIComponent(block.id)}`, {
+      archived,
+      archiveReason: archived ? "Archived from Admin" : ""
+    });
+    await loadReservations();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function cancelReservation(id, button) {
+  const label = button.textContent;
+  if (!window.confirm("Cancel this reservation in staging and release its dates? Stripe test charges will remain visible in Stripe, but the staging calendar will become available again.")) {
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Canceling...";
+  try {
+    await patchJson(`/api/admin/reservations/${encodeURIComponent(id)}`, {
+      status: "canceled",
+      paymentStatus: "canceled"
+    });
+    await loadReservations();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+async function archiveReservation(id, archived, button) {
+  const label = button.textContent;
+  const message = archived
+    ? "Archive this booking activity? Archived activity is hidden from the default Admin activity list, but existing booked dates are not released."
+    : "Unarchive this booking activity and show it in the default Admin activity list?";
+  if (!window.confirm(message)) {
+    return;
+  }
+  button.disabled = true;
+  button.textContent = archived ? "Archiving..." : "Restoring...";
+  try {
+    await patchJson(`/api/admin/reservations/${encodeURIComponent(id)}`, {
+      archived,
+      archiveReason: archived ? "Archived from Admin" : ""
+    });
+    await loadReservations();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+async function deleteReservation(id, button) {
+  const label = button.textContent;
+  if (!window.confirm("Delete this local booking activity and release its dates? This cannot delete Lodgify bookings or refund Stripe charges.")) {
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Deleting...";
+  try {
+    await deleteJson(`/api/admin/reservations/${encodeURIComponent(id)}`);
+    await Promise.all([loadReservations(), loadMessageQueue()]);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+async function approveReservation(id, button) {
+  const label = button.textContent;
+  const specialOfferInput = button.closest(".row-actions")?.querySelector("[data-special-offer-total]");
+  const specialOfferTotal = specialOfferInput?.value?.trim() || "";
+  if (specialOfferTotal) {
+    const parsed = Number(specialOfferTotal.replace(/[$,]/g, ""));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      window.alert("Preferred total must be a positive dollar amount.");
+      return;
+    }
+  }
+  button.disabled = true;
+  if (specialOfferInput) specialOfferInput.disabled = true;
+  button.textContent = "Approving...";
+  try {
+    const payload = specialOfferTotal ? { specialOfferTotal } : {};
+    const result = await postJson(`/api/admin/reservations/${encodeURIComponent(id)}/approve`, payload);
+    await Promise.all([loadReservations(), loadMessageQueue()]);
+    if (result.email?.status === "sent") {
+      window.alert("Deposit link created and emailed to the guest.");
+    } else if (result.email?.status === "failed") {
+      const detail = result.email.error ? `\n\nEmail error: ${result.email.error}` : "";
+      window.alert(`Deposit link created, but the email could not be sent. Use Open deposit link or Compose email in the reservation row.${detail}`);
+    } else if (result.checkoutUrl) {
+      window.alert("Deposit link created. Email is ready but not sent yet; use Compose email in the reservation row until sending is enabled.");
+    } else {
+      window.alert(result.message || "Request approved.");
+    }
+  } catch (error) {
+    button.disabled = false;
+    if (specialOfferInput) specialOfferInput.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+async function createBalanceLink(id, button) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Creating...";
+  try {
+    const result = await postJson(`/api/admin/reservations/${encodeURIComponent(id)}/balance`, {});
+    await Promise.all([loadReservations(), loadMessageQueue()]);
+    if (result.email?.status === "sent") {
+      window.alert("Balance link created and emailed to the guest.");
+    } else if (result.email?.status === "failed") {
+      const detail = result.email.error ? `\n\nEmail error: ${result.email.error}` : "";
+      window.alert(`Balance link created, but the email could not be sent. Use Open balance link or Compose balance email in the reservation row.${detail}`);
+    } else if (result.checkoutUrl) {
+      window.alert("Balance link created. Email is ready but not sent yet; use Compose balance email in the reservation row until sending is enabled.");
+    } else {
+      window.alert(result.message || "Balance link created.");
+    }
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+async function declineReservation(id, button) {
+  const label = button.textContent;
+  if (!window.confirm("Decline this booking request and release its dates?")) {
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Declining...";
+  try {
+    await postJson(`/api/admin/reservations/${encodeURIComponent(id)}/decline`, {});
+    await loadReservations();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+async function markMessageSent(id, button) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Saving...";
+  try {
+    await patchJson(`/api/admin/message-queue/${encodeURIComponent(id)}`, { status: "sent" });
+    await loadMessageQueue();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+function setBlockMessage(message, isError = false) {
+  els.blockMessage.textContent = message;
+  els.blockMessage.classList.toggle("error", isError);
+}
+
+function setSyncMessage(message, isError = false) {
+  els.syncMessage.textContent = message;
+  els.syncMessage.classList.toggle("error", isError);
+}
+
+function setMessageQueueMessage(message, isError = false) {
+  els.messageQueueMessage.textContent = message;
+  els.messageQueueMessage.classList.toggle("error", isError);
+}
+
+async function getJson(url) {
+  const response = await fetch(adminDataUrl(url));
+  return readJsonResponse(response);
+}
+
+async function postJson(url, payload) {
+  const response = await fetch(adminDataUrl(url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return readJsonResponse(response);
+}
+
+async function patchJson(url, payload) {
+  const response = await fetch(adminDataUrl(url), {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return readJsonResponse(response);
+}
+
+async function deleteJson(url) {
+  const response = await fetch(adminDataUrl(url), { method: "DELETE" });
+  return readJsonResponse(response);
+}
+
+function adminDataUrl(url) {
+  if (url === "/api/staging/status") return "/admin-data/status";
+  return url.replace(/^\/api\/admin\//, "/admin-data/");
+}
+
+async function readJsonResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+    const looksLikeHtml = text.trim().startsWith("<");
+    const message = looksLikeHtml
+      ? "The server returned a web page instead of app data. Refresh after the deploy finishes; if this repeats, check the Render logs."
+      : text.trim() || "The server returned an unexpected response.";
+    throw new Error(message);
+  }
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Request failed.");
+  return data;
+}
+
+function money(amount, currency = "USD") {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
+}
+
+function remainingBalance(reservation) {
+  const total = Number(reservation.quote?.total || 0);
+  const paid = Number(reservation.amountPaid || 0);
+  return Math.max(total - paid, 0);
+}
+
+function formatDate(iso) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC"
+  });
+}
+
+function formatDateWithYear(iso) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
     day: "numeric",
     year: "numeric",
     timeZone: "UTC"
   });
 }
 
-function formatDateTimeForEmail(iso, settings) {
-  const timeZone = settings.business?.timezone || "America/New_York";
+function formatDateTime(iso) {
   return new Date(iso).toLocaleString("en-US", {
-    weekday: "short",
     month: "short",
     day: "numeric",
     hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-    timeZone
+    minute: "2-digit"
   });
 }
 
-function formatCurrency(amount = 0, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency || "USD"
-  }).format(Number(amount || 0));
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function quoteStay(arrival, departure, settings, store) {
-  assertDateRange(arrival, departure);
-  const nights = nightsBetween(arrival, departure);
-  const rules = settings.rules;
-  if (nights < rules.minimumStayNights) {
-    throw userError(`The minimum stay is ${rules.minimumStayNights} nights.`);
-  }
-  if (nights > rules.maximumStayNights) {
-    throw userError(`The maximum stay is ${rules.maximumStayNights} nights.`);
-  }
-  const conflicts = findConflicts(arrival, departure, settings, store);
-  if (conflicts.length) {
-    throw userError("Those dates are not available.");
-  }
-  const today = startOfUtcDay(new Date());
-  const earliestArrival = addDays(today, rules.advanceNoticeDays);
-  if (parseDate(arrival) < earliestArrival) {
-    throw userError(`Reservations need at least ${rules.advanceNoticeDays} days of notice.`);
-  }
-
-  const stay = calculateStayTotal(arrival, departure, settings.pricing);
-  const cleaning = settings.pricing.cleaningFee;
-  const taxes = roundMoney((stay.total + cleaning) * settings.pricing.taxRate);
-  const total = roundMoney(stay.total + cleaning + taxes);
-  const depositDue = roundMoney(total * settings.pricing.depositPercentage);
-  const balanceDue = roundMoney(total - depositDue);
-  return {
-    arrival,
-    departure,
-    nights,
-    currency: settings.pricing.currency,
-    lineItems: [
-      ...stay.lineItems,
-      { label: "Cleaning & Stocking", amount: cleaning },
-      ...(taxes ? [{ label: "Taxes", amount: taxes }] : [])
-    ],
-    subtotal: roundMoney(stay.total + cleaning),
-    taxes,
-    total,
-    depositDue,
-    balanceDue,
-    checkInTime: settings.rules.checkInTime,
-    checkOutTime: settings.rules.checkOutTime
-  };
-}
-
-function calculateStayTotal(arrival, departure, pricing) {
-  const dates = eachNight(arrival, departure);
-  let remaining = [...dates];
-  const lineItems = [];
-  let total = 0;
-
-  while (remaining.length >= pricing.monthlyStay.nights) {
-    total += pricing.monthlyStay.price;
-    lineItems.push({ label: `${pricing.monthlyStay.nights}-night monthly stay`, amount: pricing.monthlyStay.price });
-    remaining = remaining.slice(pricing.monthlyStay.nights);
-  }
-  while (remaining.length >= pricing.weeklyStay.nights) {
-    total += pricing.weeklyStay.price;
-    lineItems.push({ label: `${pricing.weeklyStay.nights}-night weekly stay`, amount: pricing.weeklyStay.price });
-    remaining = remaining.slice(pricing.weeklyStay.nights);
-  }
-  for (const date of remaining) {
-    const weekday = String(date.getUTCDay());
-    const rate = pricing.baseNightlyByWeekday[weekday];
-    total += rate;
-    lineItems.push({ label: `${formatShortDate(date)} nightly rate`, amount: rate });
-  }
-
-  return { total: roundMoney(total), lineItems };
-}
-
-function getAvailability(start, end, settings, store) {
-  assertDateRange(start, end);
-  const days = [];
-  for (const date of eachDayInclusive(start, end)) {
-    const iso = dateToIso(date);
-    days.push({
-      date: iso,
-      available: findConflicts(iso, addDaysIso(iso, 1), settings, store).length === 0,
-      conflicts: findConflicts(iso, addDaysIso(iso, 1), settings, store).map((item) => item.type)
-    });
-  }
-  return { start, end, days };
-}
-
-function findConflicts(arrival, departure, settings, store) {
-  const conflicts = [];
-  const start = parseDate(arrival);
-  const end = parseDate(departure);
-  const buffer = settings.rules.preparationDays;
-
-  for (const reservation of store.reservations || []) {
-    if (["canceled", "declined"].includes(reservation.status)) continue;
-    if (reservation.status === "pending_payment" && isExpiredHold(reservation)) continue;
-    const blockedStart = addDays(parseDate(reservation.arrival), -buffer);
-    const blockedEnd = addDays(parseDate(reservation.departure), buffer);
-    if (rangesOverlap(start, end, blockedStart, blockedEnd)) {
-      conflicts.push({ type: "reservation", id: reservation.id });
-    }
-  }
-
-  for (const block of store.manualBlocks || []) {
-    if (rangesOverlap(start, end, parseDate(block.start), parseDate(block.end))) {
-      conflicts.push({ type: "manual_block", id: block.id });
-    }
-  }
-
-  for (const block of store.availabilityBlocks || []) {
-    if (rangesOverlap(start, end, parseDate(block.start), parseDate(block.end))) {
-      conflicts.push({ type: "synced_availability", id: block.id });
-    }
-  }
-  return conflicts;
-}
-
-function publicBusiness(business) {
-  return {
-    siteName: business.siteName,
-    propertyName: business.propertyName,
-    addressSummary: business.addressSummary,
-    imageUrl: business.imageUrl,
-    timezone: business.timezone
-  };
-}
-
-function assertDateRange(start, end) {
-  if (!isIsoDate(start) || !isIsoDate(end)) {
-    throw userError("Please choose valid arrival and departure dates.");
-  }
-  if (parseDate(start) >= parseDate(end)) {
-    throw userError("Departure must be after arrival.");
-  }
-}
-
-function required(value, label) {
-  if (!String(value || "").trim()) {
-    throw userError(`${label} is required.`);
-  }
-  return String(value).trim();
-}
-
-function validateGuestCount(value, settings) {
-  const guests = Number(value || 1);
-  const maximumGuests = Number(settings.rules?.maximumGuests || 3);
-  if (!Number.isInteger(guests) || guests < 1 || guests > maximumGuests) {
-    throw userError(`Guest count must be between 1 and ${maximumGuests}.`);
-  }
-}
-
-function isIsoDate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) && !Number.isNaN(parseDate(value).getTime());
-}
-
-function parseDate(value) {
-  return new Date(`${value}T00:00:00.000Z`);
-}
-
-function startOfUtcDay(date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
-function nightsBetween(start, end) {
-  return Math.round((parseDate(end) - parseDate(start)) / 86400000);
-}
-
-function eachNight(start, end) {
-  const dates = [];
-  for (let date = parseDate(start); date < parseDate(end); date = addDays(date, 1)) {
-    dates.push(date);
-  }
-  return dates;
-}
-
-function eachDayInclusive(start, end) {
-  const dates = [];
-  for (let date = parseDate(start); date <= parseDate(end); date = addDays(date, 1)) {
-    dates.push(date);
-  }
-  return dates;
-}
-
-function addDays(date, days) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function addMinutes(date, minutes) {
-  return new Date(date.getTime() + minutes * 60000);
+function firstOfMonth(iso) {
+  return `${iso.slice(0, 7)}-01`;
 }
 
 function addDaysIso(iso, days) {
-  return dateToIso(addDays(parseDate(iso), days));
-}
-
-function dateAtUtcHour(iso, hour) {
-  return `${iso}T${String(hour).padStart(2, "0")}:00:00.000Z`;
-}
-
-function dateToIso(date) {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
-function formatShortDate(date) {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-}
-
-function rangesOverlap(startA, endA, startB, endB) {
-  return startA < endB && startB < endA;
-}
-
-function roundMoney(value) {
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
-}
-
-function cloneReservation(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function parseOptionalMoney(value, label) {
-  if (value === undefined || value === null || String(value).trim() === "") {
-    return null;
-  }
-  const parsed = Number(String(value).replace(/[$,]/g, "").trim());
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw userError(`${label} must be a positive dollar amount.`, 400);
-  }
-  return roundMoney(parsed);
-}
-
-function applySpecialOfferToReservation(reservation, settings, specialOfferTotal) {
-  if (specialOfferTotal === null) {
-    return reservation;
-  }
-  if (!reservation.quote) {
-    throw userError("Reservation quote is missing.", 400);
-  }
-
-  const currentTotal = roundMoney(Number(reservation.quote.total || 0));
-  const existingOffer = reservation.quote.specialOffer;
-  const originalTotal = roundMoney(Number(existingOffer?.originalTotal || currentTotal));
-  if (!Number.isFinite(originalTotal) || originalTotal <= 0) {
-    throw userError("Reservation total is missing.", 400);
-  }
-  if (specialOfferTotal > originalTotal) {
-    throw userError("Preferred total must be less than or equal to the current quote total.", 400);
-  }
-
-  const originalLineItems = Array.isArray(reservation.quote.lineItems)
-    ? reservation.quote.lineItems.filter((item) => item.type !== "special_offer")
-    : [];
-  const depositPercentage = Number(settings.pricing?.depositPercentage || 0.5);
-
-  reservation.quote.lineItems = originalLineItems;
-  reservation.quote.total = specialOfferTotal;
-  reservation.quote.depositDue = roundMoney(specialOfferTotal * depositPercentage);
-  reservation.quote.balanceDue = roundMoney(specialOfferTotal - reservation.quote.depositDue);
-  delete reservation.quote.specialOffer;
-
-  if (specialOfferTotal === originalTotal) {
-    return reservation;
-  }
-
-  const discount = roundMoney(originalTotal - specialOfferTotal);
-  reservation.quote.lineItems = [
-    ...originalLineItems,
-    { label: "Preferred guest discount", amount: -discount, type: "special_offer" }
-  ];
-  reservation.quote.specialOffer = {
-    originalTotal,
-    discount,
-    total: specialOfferTotal,
-    createdAt: existingOffer?.createdAt || new Date().toISOString()
-  };
-  return reservation;
-}
-
-function toCents(value) {
-  return Math.round(Number(value) * 100);
-}
-
-function centsToDollars(value) {
-  return roundMoney(Number(value) / 100);
-}
-
-function remainingBalance(reservation) {
-  const total = Number(reservation.quote?.total || 0);
-  const paid = Number(reservation.amountPaid || 0);
-  return roundMoney(Math.max(total - paid, 0));
-}
-
-function reservationDateRange(reservation) {
-  return `${reservation?.arrival || "unknown arrival"} to ${reservation?.departure || "unknown departure"}`;
-}
-
-function plainObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-
-function cleanText(value, maxLength = 1000) {
-  return String(value ?? "")
-    .replace(/\r\n?/g, "\n")
-    .trim()
-    .slice(0, maxLength);
-}
-
-function normalizeEmailField(value) {
-  return cleanText(value, 254).toLowerCase();
-}
-
-function normalizeGoogleAdsCustomerId(value = "") {
-  return String(value || "").replace(/\D/g, "");
-}
-
-function googleAdsDateTime(value) {
-  const date = new Date(value || Date.now());
-  if (Number.isNaN(date.getTime())) {
-    return googleAdsDateTime(new Date().toISOString());
-  }
-  return `${date.toISOString().slice(0, 19).replace("T", " ")}+00:00`;
-}
-
-function stripeAttributionMetadata(reservation, paymentType) {
-  return {
-    booking_value: safeMetadataValue(reservation.quote?.total),
-    booking_currency: safeMetadataValue(reservation.quote?.currency || "USD"),
-    ...safeAttributionFields(reservation.attribution),
-    payment_type: safeMetadataValue(paymentType)
-  };
-}
-
-function safeAttributionFields(attribution = {}) {
-  const clean = sanitizeAttribution(attribution);
-  return Object.fromEntries(
-    Object.entries(clean).map(([key, value]) => [key, safeMetadataValue(value)]).filter(([, value]) => value)
-  );
-}
-
-function safeMetadataValue(value) {
-  return String(value ?? "").replace(/[\r\n]/g, " ").trim().slice(0, 500);
-}
-
-function availableGoogleClickId(attribution = {}) {
-  const clean = sanitizeAttribution(attribution);
-  for (const type of ["gclid", "gbraid", "wbraid"]) {
-    if (clean[type]) return { type, value: clean[type] };
-  }
-  return { type: "", value: "" };
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function pick(object, keys) {
-  return Object.fromEntries(keys.filter((key) => key in object).map((key) => [key, object[key]]));
-}
-
-async function readFileSettings() {
-  return JSON.parse(await readFile(settingsPath, "utf8"));
-}
-
-function mergeSettings(fileSettings, storedSettings) {
-  const stored = storedSettings && typeof storedSettings === "object" ? storedSettings : {};
-  return {
-    ...fileSettings,
-    ...stored,
-    business: { ...(fileSettings.business || {}), ...(stored.business || {}) },
-    rules: { ...(fileSettings.rules || {}), ...(stored.rules || {}) },
-    pricing: { ...(fileSettings.pricing || {}), ...(stored.pricing || {}) },
-    messages: Array.isArray(stored.messages) ? stored.messages : fileSettings.messages
-  };
-}
-
-async function readSettings() {
-  const fileSettings = await readFileSettings();
-  if (databasePool) {
-    const result = await databasePool.query("select payload from app_documents where document_key = $1", ["settings"]);
-    if (result.rows[0]?.payload) {
-      return mergeSettings(fileSettings, result.rows[0].payload);
-    }
-  }
-  return fileSettings;
-}
-
-async function readReservations() {
-  if (databasePool) {
-    const result = await databasePool.query("select payload from app_documents where document_key = $1", ["reservations"]);
-    return normalizeReservationStore(result.rows[0]?.payload);
-  }
-  return normalizeReservationStore(JSON.parse(await readFile(reservationsPath, "utf8")));
-}
-
-async function updateReservationStore(mutator) {
-  if (databasePool) {
-    return updateReservationStoreInDatabase(mutator);
-  }
-
-  const nextJob = jsonStoreQueue.then(async () => {
-    const store = await readReservations();
-    const result = await mutator(store);
-    await writeJson(reservationsPath, normalizeReservationStore(store));
-    return result;
-  });
-  jsonStoreQueue = nextJob.catch(() => {});
-  return nextJob;
-}
-
-async function updateReservationStoreInDatabase(mutator) {
-  const client = await databasePool.connect();
-  try {
-    await client.query("begin");
-    const result = await client.query("select payload from app_documents where document_key = $1 for update", ["reservations"]);
-    const store = normalizeReservationStore(result.rows[0]?.payload);
-    const returnValue = await mutator(store);
-    await client.query(
-      `
-        insert into app_documents (document_key, payload, updated_at)
-        values ($1, $2::jsonb, now())
-        on conflict (document_key)
-        do update set payload = excluded.payload, updated_at = now()
-      `,
-      ["reservations", JSON.stringify(normalizeReservationStore(store))]
-    );
-    await client.query("commit");
-    return returnValue;
-  } catch (error) {
-    await client.query("rollback").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
+function eachDate(startIso, endIso, callback) {
+  if (!startIso || !endIso) return;
+  let cursor = startIso;
+  let guard = 0;
+  while (cursor < endIso && guard < 1500) {
+    callback(cursor);
+    cursor = addDaysIso(cursor, 1);
+    guard += 1;
   }
 }
 
-async function updateSettingsStore(mutator) {
-  if (databasePool) {
-    return updateSettingsStoreInDatabase(mutator);
-  }
-
-  const nextJob = settingsStoreQueue.then(async () => {
-    const settings = await readSettings();
-    const result = await mutator(settings);
-    await writeJson(settingsPath, settings);
-    return result;
-  });
-  settingsStoreQueue = nextJob.catch(() => {});
-  return nextJob;
-}
-
-async function updateSettingsStoreInDatabase(mutator) {
-  const client = await databasePool.connect();
-  try {
-    await client.query("begin");
-    const fileSettings = await readFileSettings();
-    const result = await client.query("select payload from app_documents where document_key = $1 for update", ["settings"]);
-    const settings = mergeSettings(fileSettings, result.rows[0]?.payload);
-    const returnValue = await mutator(settings);
-    await client.query(
-      `
-        insert into app_documents (document_key, payload, updated_at)
-        values ($1, $2::jsonb, now())
-        on conflict (document_key)
-        do update set payload = excluded.payload, updated_at = now()
-      `,
-      ["settings", JSON.stringify(settings)]
-    );
-    await client.query("commit");
-    return returnValue;
-  } catch (error) {
-    await client.query("rollback").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function initializeDatabaseStorage() {
-  const { Pool } = await import("pg");
-  databasePool = new Pool({
-    connectionString: databaseUrl,
-    ...(process.env.DATABASE_SSL === "true" ? { ssl: { rejectUnauthorized: false } } : {})
-  });
-  await databasePool.query(`
-    create table if not exists app_documents (
-      document_key text primary key,
-      payload jsonb not null,
-      updated_at timestamptz not null default now()
-    )
-  `);
-
-  const existing = await databasePool.query("select 1 from app_documents where document_key = $1", ["reservations"]);
-  if (!existing.rowCount) {
-    await databasePool.query(
-      "insert into app_documents (document_key, payload) values ($1, $2::jsonb)",
-      ["reservations", JSON.stringify(await readInitialReservationStore())]
-    );
-  }
-
-  const settingsExisting = await databasePool.query("select 1 from app_documents where document_key = $1", ["settings"]);
-  if (!settingsExisting.rowCount) {
-    await databasePool.query(
-      "insert into app_documents (document_key, payload) values ($1, $2::jsonb)",
-      ["settings", JSON.stringify(await readFileSettings())]
-    );
-  }
-}
-
-async function readInitialReservationStore() {
-  if (existsSync(reservationsPath)) {
-    return normalizeReservationStore(JSON.parse(await readFile(reservationsPath, "utf8")));
-  }
-
-  const seedPath = path.join(seedDataDir, "reservations.seed.json");
-  if (existsSync(seedPath)) {
-    return normalizeReservationStore(JSON.parse(await readFile(seedPath, "utf8")));
-  }
-
-  return emptyReservationStore();
-}
-
-function emptyReservationStore() {
-  return { reservations: [], manualBlocks: [], availabilityBlocks: [], googleAdsPurchaseConversions: [], messageQueue: [], auditEvents: [] };
-}
-
-function normalizeReservationStore(store) {
-  return {
-    ...emptyReservationStore(),
-    ...(store && typeof store === "object" ? store : {}),
-    reservations: Array.isArray(store?.reservations) ? store.reservations : [],
-    manualBlocks: Array.isArray(store?.manualBlocks) ? store.manualBlocks : [],
-    availabilityBlocks: Array.isArray(store?.availabilityBlocks) ? store.availabilityBlocks : [],
-    googleAdsPurchaseConversions: Array.isArray(store?.googleAdsPurchaseConversions) ? store.googleAdsPurchaseConversions : [],
-    messageQueue: Array.isArray(store?.messageQueue) ? store.messageQueue : [],
-    auditEvents: Array.isArray(store?.auditEvents) ? store.auditEvents : []
-  };
-}
-
-function replaceStoreContents(target, source) {
-  for (const key of Object.keys(target)) {
-    delete target[key];
-  }
-  Object.assign(target, normalizeReservationStore(source));
-}
-
-async function ensureDataFile(fileName, fallback, seedFileName = fileName) {
-  const runtimePath = path.join(dataDir, fileName);
-  if (existsSync(runtimePath)) return;
-
-  const seedPath = path.join(seedDataDir, seedFileName);
-  if (existsSync(seedPath)) {
-    await writeFile(runtimePath, await readFile(seedPath, "utf8"));
-    return;
-  }
-
-  await writeJson(runtimePath, fallback);
-}
-
-async function writeJson(filePath, data) {
-  await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`);
-}
-
-async function readJsonBody(req) {
-  const raw = await readRawBody(req);
-  if (!raw.length) return {};
-  try {
-    return JSON.parse(raw.toString("utf8"));
-  } catch {
-    throw userError("Request body must be valid JSON.");
-  }
-}
-
-async function readRawBody(req) {
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks);
-}
-
-function sendJson(res, status, data) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(data));
-}
-
-function sendJsonDownload(res, fileName, data) {
-  res.writeHead(200, {
-    "content-type": "application/json; charset=utf-8",
-    "content-disposition": `attachment; filename="${fileName}"`
-  });
-  res.end(`${JSON.stringify(data, null, 2)}\n`);
-}
-
-function sendText(res, status, text) {
-  res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
-  res.end(text);
-}
-
-function sendHtml(res, status, html) {
-  res.writeHead(status, { "content-type": "text/html; charset=utf-8" });
-  res.end(html);
-}
-
-function redirect(res, location) {
-  res.writeHead(303, {
-    "cache-control": "no-store",
-    location
-  });
-  res.end();
-}
-
-function sendCheckoutRedirect(res, checkoutUrl) {
-  const tracking = publicTrackingConfig();
-  const adsId = normalizeGoogleAdsTagId(tracking.googleAdsId) || "AW-994349610";
-  const conversionLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, adsId) || "VjVqCJiT3eccEKqkktoD";
-  const destination = JSON.stringify(checkoutUrl);
-  const sendTo = JSON.stringify(`${adsId}/${conversionLabel}`);
-  sendHtml(res, 200, `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="3;url=${escapeHtml(checkoutUrl)}">
-    <title>Continue to checkout - Sixth &amp; 14th</title>
-    <link rel="stylesheet" href="/styles.css">
-    <script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(adsId)}"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', ${JSON.stringify(adsId)});
-      var checkoutDestination = ${destination};
-      var checkoutStarted = false;
-      function continueToCheckout() {
-        if (checkoutStarted) return;
-        checkoutStarted = true;
-        window.location.href = checkoutDestination;
-      }
-      gtag('event', 'conversion', {
-        send_to: ${sendTo},
-        transaction_id: '',
-        event_callback: continueToCheckout,
-        event_timeout: 1000
-      });
-      setTimeout(continueToCheckout, 1200);
-    </script>
-  </head>
-  <body>
-    <main class="centered-page">
-      <section class="confirmation-card">
-        <img class="confirmation-image" src="/park-slope-6av-14st.webp" alt="Illustrated Sixth Avenue and 14th Street icon">
-        <h1>Continue to checkout</h1>
-        <p>Taking you to the secure payment page.</p>
-        <a class="primary-button" href="${escapeHtml(checkoutUrl)}">Continue</a>
-      </section>
-    </main>
-  </body>
-</html>`);
-}
-
-function normalizeGoogleAdsTagId(value) {
-  const id = String(value || "").trim();
-  return /^AW-\d+$/.test(id) ? id : "";
-}
-
-function normalizeConversionLabel(value, adsId) {
-  const label = String(value || "").trim();
-  if (!label) return "";
-  const sendToPrefix = `${adsId}/`;
-  if (label.startsWith(sendToPrefix)) return label.slice(sendToPrefix.length);
-  if (label.startsWith("AW-") && label.includes("/")) return label.split("/").pop();
-  return label;
-}
-
-function sendPaymentNotice(res, status, title, message) {
-  sendHtml(res, status, `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${escapeHtml(title)} - Sixth &amp; 14th</title>
-    <link rel="stylesheet" href="/styles.css">
-    <script src="/tracking.js" type="module"></script>
-  </head>
-  <body>
-    <main class="success-shell">
-      <section class="success-card">
-        <img src="/park-slope-6av-14st.webp" alt="Sixth &amp; 14th illustrated icon">
-        <h1>${escapeHtml(title)}</h1>
-        <p>${escapeHtml(message)}</p>
-        <a class="primary-button" href="/">Back to booking</a>
-      </section>
-    </main>
-  </body>
-</html>`);
-}
-
-function requiresStagingAuth(req, url) {
-  if (!process.env.STAGING_PASSWORD) return false;
-  if (isAlwaysPublicRequest(url)) return false;
-  if (publicBookingEnabled() && isPublicBookingRequest(req, url)) return false;
-  return true;
-}
-
-function isAlwaysPublicRequest(url) {
-  return ["/api/health", "/api/stripe/webhook"].includes(url.pathname);
-}
-
-function isPublicBookingRequest(req, url) {
-  if (req.method === "GET" && publicBookingStaticPaths.has(url.pathname)) return true;
-  if (req.method === "GET" && paymentLinkParts(url.pathname)) return true;
-  if (req.method === "GET" && ["/api/config", "/api/availability"].includes(url.pathname)) return true;
-  if (req.method === "POST" && ["/api/quote", "/api/bookings"].includes(url.pathname)) return true;
-  return false;
-}
-
-function publicBookingEnabled() {
-  return process.env.PUBLIC_BOOKING_ENABLED === "true";
-}
-
-function publicTrackingConfig() {
-  return {
-    googleAdsId: process.env.GOOGLE_ADS_ID || "AW-994349610",
-    googleAdsConversionLabel: process.env.GOOGLE_ADS_CONVERSION_LABEL || "VjVqCJiT3eccEKqkktoD",
-    debug: trackingDebugEnabled()
-  };
-}
-
-function trackingDebugEnabled() {
-  return process.env.NODE_ENV !== "production" || process.env.TRACKING_DEBUG === "true";
-}
-
-function isAuthorized(req) {
-  const header = req.headers.authorization || "";
-  if (!header.startsWith("Basic ")) return false;
-  const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
-  const separator = decoded.indexOf(":");
-  if (separator === -1) return false;
-  const username = decoded.slice(0, separator);
-  const password = decoded.slice(separator + 1);
-  return safeEqualString(username, process.env.STAGING_USERNAME || "marc") && safeEqualString(password, process.env.STAGING_PASSWORD);
-}
-
-function requestStagingAuth(res) {
-  res.writeHead(401, {
-    "content-type": "text/plain; charset=utf-8",
-    "www-authenticate": 'Basic realm="Sixth 14th private staging", charset="UTF-8"'
-  });
-  res.end("Private staging requires a username and password.");
-}
-
-function safeEqualString(left = "", right = "") {
-  const leftBuffer = Buffer.from(String(left));
-  const rightBuffer = Buffer.from(String(right));
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function getHealthPayload() {
-  return {
-    ok: true,
-    service: "sixth14th-booking",
-    timestamp: new Date().toISOString()
-  };
-}
-
-function publicStagingStatus() {
-  return {
-    label: process.env.STAGING_LABEL || "Local prototype",
-    private: Boolean(process.env.STAGING_PASSWORD),
-    publicBookingEnabled: publicBookingEnabled(),
-    stripeMode: stripeMode()
-  };
-}
-
-function getStagingStatus() {
-  const emailStatus = getEmailStatus();
-  const googleAdsStatus = getGoogleAdsDeliveryStatus();
-  return {
-    label: process.env.STAGING_LABEL || "Local prototype",
-    privateAccessEnabled: Boolean(process.env.STAGING_PASSWORD),
-    publicBookingEnabled: publicBookingEnabled(),
-    publicBaseUrl: process.env.PUBLIC_BASE_URL || `http://localhost:${port}`,
-    storage: databasePool ? "postgres" : "local-json",
-    databaseConfigured: Boolean(databasePool),
-    stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
-    stripeMode: stripeMode(),
-    stripeWebhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
-    liveStripeUnlocked: process.env.ALLOW_LIVE_STRIPE === "true",
-    lodgifySyncConfigured: Boolean(process.env.LODGIFY_API_KEY || process.env.LODGIFY_ICAL_URL),
-    emailConfigured: emailStatus.configured,
-    emailSendingEnabled: emailStatus.sendingEnabled,
-    emailProvider: emailStatus.provider,
-    emailFrom: emailStatus.from,
-    emailReplyTo: emailStatus.replyTo,
-    googleCalendarConfigured: calendarConfigured(),
-    googleCalendarSyncEnabled: calendarSyncEnabled(),
-    googleCalendarId: calendarTargetId(),
-    googleCalendarAttendee: calendarInviteEmail(),
-    googleAdsDeliveryConfigured: googleAdsStatus.configured,
-    googleAdsDeliveryDryRun: googleAdsStatus.dryRun,
-    googleAdsApiVersion: googleAdsStatus.apiVersion,
-    ownerNotificationsEnabled: ownerNotificationsEnabled(),
-    ownerNotifyEmail: ownerNotifyEmail(),
-    paymentHoldMinutes
-  };
-}
-
-function getGoogleAdsDeliveryStatus() {
-  const config = googleAdsDeliveryConfig();
-  return {
-    configured: googleAdsDeliveryConfigured(config),
-    dryRun: process.env.GOOGLE_ADS_DELIVERY_DRY_RUN === "true",
-    apiVersion: config.apiVersion
-  };
-}
-
-function getEmailStatus() {
-  return {
-    configured: emailProviderConfigured(),
-    sendingEnabled: emailSendingEnabled(),
-    provider: emailProviderName(),
-    from: emailFromAddress(),
-    replyTo: emailReplyToAddress()
-  };
-}
-
-function emailSendingEnabled() {
-  return process.env.EMAIL_SEND_ENABLED === "true" && emailProviderConfigured();
-}
-
-function emailProviderConfigured() {
-  return Boolean(emailFromAddress() && (gmailConfigured() || process.env.RESEND_API_KEY || smtpConfigured()));
-}
-
-function gmailConfigured() {
-  return Boolean(
-    process.env.GMAIL_OAUTH_CLIENT_ID
-    && process.env.GMAIL_OAUTH_CLIENT_SECRET
-    && process.env.GMAIL_OAUTH_REFRESH_TOKEN
-    && process.env.GMAIL_OAUTH_USER
-  );
-}
-
-function calendarConfigured() {
-  return gmailConfigured();
-}
-
-function calendarSyncEnabled() {
-  return process.env.GOOGLE_CALENDAR_SYNC_ENABLED !== "false" && calendarConfigured();
-}
-
-function calendarTargetId() {
-  return process.env.GOOGLE_CALENDAR_ID || "primary";
-}
-
-function calendarInviteEmail() {
-  return process.env.GOOGLE_CALENDAR_ATTENDEE || process.env.GMAIL_OAUTH_USER || "stay@sixth14th.com";
-}
-
-function smtpConfigured() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-}
-
-function smtpSecure() {
-  if (process.env.SMTP_SECURE) return process.env.SMTP_SECURE === "true";
-  return Number(process.env.SMTP_PORT || 587) === 465;
-}
-
-function emailProviderName() {
-  if (gmailConfigured()) return "gmail";
-  if (process.env.RESEND_API_KEY) return "resend";
-  if (smtpConfigured() || process.env.SMTP_HOST) return "smtp";
-  return "none";
-}
-
-function emailFromAddress() {
-  return process.env.EMAIL_FROM || defaultEmailFrom;
-}
-
-function emailReplyToAddress() {
-  return process.env.EMAIL_REPLY_TO || defaultEmailReplyTo;
-}
-
-function stripeMode() {
-  if (!process.env.STRIPE_SECRET_KEY) return "not_configured";
-  if (isLiveStripeKey(process.env.STRIPE_SECRET_KEY)) return "live";
-  if (isTestStripeKey(process.env.STRIPE_SECRET_KEY)) return "test";
-  return "unknown";
-}
-
-function userError(message, status = 400) {
-  const error = new Error(message);
-  error.status = status;
-  return error;
+function isSameMonth(iso, year, month) {
+  const date = new Date(`${iso}T00:00:00Z`);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month;
 }
 
 function isExpiredHold(reservation) {
   return reservation.holdExpiresAt && new Date(reservation.holdExpiresAt).getTime() <= Date.now();
 }
 
-function isLiveStripeKey(value = "") {
-  return ["sk_live_", "rk_live_"].some((prefix) => String(value).startsWith(prefix));
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  })[char]);
 }
-
-function isTestStripeKey(value = "") {
-  return ["sk_test_", "rk_test_"].some((prefix) => String(value).startsWith(prefix));
-}
-
-process.on("uncaughtException", (error) => {
-  console.error(error);
-});
-
-process.on("unhandledRejection", (error) => {
-  console.error(error);
-});

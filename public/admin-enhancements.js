@@ -319,17 +319,21 @@ function installEnhancementStyles() {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url);
+  const response = await fetch(adminDataUrl(url));
   return readJsonResponse(response);
 }
 
 async function patchJson(url, payload) {
-  const response = await fetch(url, {
+  const response = await fetch(adminDataUrl(url), {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload)
   });
   return readJsonResponse(response);
+}
+
+function adminDataUrl(url) {
+  return url.replace(/^\/api\/admin\//, "/admin-data/");
 }
 
 async function readJsonResponse(response) {
