@@ -632,7 +632,33 @@ function reservationAction(reservation) {
       `;
     }
     const paymentLink = reservation.stripeCheckoutUrl
-      ? `…2999 tokens truncated…ta">
+      ? `<a class="text-button" href="${escapeHtml(paymentPageUrl(reservation, "deposit"))}" target="_blank" rel="no…2693 tokens truncated…view-message">Preview</button>
+        ${messageComposeLink(delivery)}
+        ${["sent", "skipped"].includes(delivery.status) ? "" : '<button type="button" class="text-button" data-action="mark-message-sent">Mark sent</button>'}
+      </span>
+    `;
+    row.querySelector("[data-action='preview-message']").addEventListener("click", () => renderMessagePreview(delivery));
+    const markSent = row.querySelector("[data-action='mark-message-sent']");
+    if (markSent) {
+      markSent.addEventListener("click", () => markMessageSent(delivery.id, markSent));
+    }
+    rows.push(row);
+  }
+
+  if (rows.length === 1) {
+    const empty = document.createElement("div");
+    empty.className = "message-row";
+    empty.innerHTML = "<span>No guest messages are scheduled yet.</span><span></span><span></span><span></span><span></span>";
+    rows.push(empty);
+  }
+
+  els.messageQueue.replaceChildren(...rows);
+}
+
+function renderMessagePreview(delivery) {
+  els.messagePreview.innerHTML = `
+    <h2>${escapeHtml(delivery.messageName)}</h2>
+    <dl class="preview-meta">
       <div><dt>To</dt><dd>${escapeHtml(delivery.recipientName)} &lt;${escapeHtml(delivery.recipientEmail)}&gt;</dd></div>
       <div><dt>Subject</dt><dd>${escapeHtml(delivery.subject)}</dd></div>
       <div><dt>Scheduled</dt><dd>${escapeHtml(formatDateTime(delivery.dueAt))}</dd></div>
@@ -1066,16 +1092,16 @@ function renderBookingAnalytics() {
   const currencyValues = (key) => Object.entries(stats.financials)
     .map(([currency, amounts]) => money(amounts[key], currency)).join(" / ") || money(0, "USD");
   const cards = [
-    ["Booking days", stats.bookedDays.toLocaleString(), "Nights booked"],
-    ["Occupancy", `${(stats.bookedDays / stats.daysInYear * 100).toFixed(1)}%`, `${stats.bookedDays} of ${stats.daysInYear} days`],
-    ["Deposits paid", currencyValues("deposits"), "Received to date"],
-    ["Money due", currencyValues("due"), "Outstanding balances"],
-    ["Booking revenue", currencyValues("revenue"), "Includes fees & taxes"]
+    ["Booking days", stats.bookedDays.toLocaleString(), "Occupied nights; checkout excluded"],
+    ["Occupancy", `${(stats.bookedDays / stats.daysInYear * 100).toFixed(1)}%`, `${stats.bookedDays} of ${stats.daysInYear} calendar days`],
+    ["Deposits paid", currencyValues("deposits"), "Recorded payments up to each deposit amount"],
+    ["Money due", currencyValues("due"), "Outstanding booking balances"],
+    ["Total booking revenue", currencyValues("revenue"), "Full booking totals, including fees and taxes"]
   ];
   document.querySelector("#bookingAnalytics").replaceChildren(...cards.map(([label, value, detail]) => {
     const card = document.createElement("article");
     card.className = "analytics-card";
-    card.innerHTML = `<span>${escapeHtml(label)}</span><strong>${String(value).split(" / ").map((part) => `<span class="analytics-amount">${escapeHtml(part)}</span>`).join("")}</strong><small>${escapeHtml(detail)}</small>`;
+    card.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>${escapeHtml(detail)}</small>`;
     return card;
   }));
   document.querySelector("#analyticsCoverage").textContent = `${stats.bookingCount} confirmed stays overlap this year. Calendar-only availability blocks are excluded because they may represent maintenance or owner stays. Imported Lodgify deposits are unavailable and excluded from deposits paid; imported totals and balances reflect the last sync. This panel covers records retained in this app, not a complete historical Lodgify ledger.${stats.missingFinancials ? ` ${stats.missingFinancials} stays lack financial totals and are excluded from money figures.` : ""}`;
