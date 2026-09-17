@@ -21,15 +21,18 @@
     </header>
 
     <main class="admin-shell">
-      <section class="admin-section">
+      <section class="admin-section analytics-section" aria-labelledby="analyticsHeading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Staging</p>
-            <h1>System status</h1>
+            <p class="eyebrow">Current calendar year · <span id="analyticsYear"></span></p>
+            <h1 id="analyticsHeading">Booking analytics</h1>
           </div>
         </div>
-        <div id="stagingStatus" class="status-grid"></div>
+        <div id="bookingAnalytics" class="analytics-grid" aria-live="polite"><p class="muted">Loading analytics…</p></div>
+        <p class="muted analytics-note">Confirmed bookings, including archived stays. Booking days are occupied nights within the year; occupancy uses all calendar days, including owner blocks. Financial totals include stays checking in this year, including future stays, and use recorded payments. Canceled, declined, and pending bookings are excluded.</p>
+        <p id="analyticsCoverage" class="muted analytics-note"></p>
       </section>
+
 
       <section class="admin-section">
         <div class="section-heading">
@@ -133,6 +136,15 @@
           </div>
         </div>
         <div id="auditLog" class="data-table"></div>
+      </section>
+      <section class="admin-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Staging</p>
+            <h1>System status</h1>
+          </div>
+        </div>
+        <div id="stagingStatus" class="status-grid"></div>
       </section>
     </main>
 

@@ -1,3 +1,5 @@
+import { calculateBookingAnalytics } from "./booking-analytics.js";
+
 const els = {
   stagingStatus: document.querySelector("#stagingStatus"),
   operationsDashboard: document.querySelector("#operationsDashboard"),
@@ -75,10 +77,18 @@ async function loadStatus() {
 }
 
 async function loadReservations() {
-  const store = await getJson("/api/admin/reservations");
+  let store;
+  try {
+    store = await getJson("/api/admin/reservations");
+  } catch (error) {
+    document.querySelector("#bookingAnalytics").textContent = "Analytics unavailable. Use Refresh in Booking activity to retry.";
+    document.querySelector("#analyticsCoverage").textContent = "";
+    return;
+  }
   latestReservations = store.reservations || [];
   latestManualBlocks = store.manualBlocks || [];
   latestAvailabilityBlocks = store.availabilityBlocks || [];
+  renderBookingAnalytics();
   renderAdminCalendar();
   renderReservations(latestReservations, latestManualBlocks, latestAvailabilityBlocks);
   renderMessages();
@@ -1316,4 +1326,26 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#039;"
   })[char]);
+}
+
+function renderBookingAnalytics() {
+  const year = Number(new Intl.DateTimeFormat("en-US", { year: "numeric", timeZone: "America/New_York" }).format(new Date()));
+  const stats = calculateBookingAnalytics(latestReservations, year);
+  document.querySelector("#analyticsYear").textContent = year;
+  const currencyValues = (key) => Object.entries(stats.financials)
+    .map(([currency, amounts]) => money(amounts[key], currency)).join(" / ") || money(0, "USD");
+  const cards = [
+    ["Booking days", stats.bookedDays.toLocaleString(), "Occupied nights; checkout excluded"],
+    ["Occupancy", `${(stats.bookedDays / stats.daysInYear * 100).toFixed(1)}%`, `${stats.bookedDays} of ${stats.daysInYear} calendar days`],
+    ["Deposits paid", currencyValues("deposits"), "Recorded payments up to each deposit amount"],
+    ["Money due", currencyValues("due"), "Outstanding booking balances"],
+    ["Total booking revenue", currencyValues("revenue"), "Full booking totals, including fees and taxes"]
+  ];
+  document.querySelector("#bookingAnalytics").replaceChildren(...cards.map(([label, value, detail]) => {
+    const card = document.createElement("article");
+    card.className = "analytics-card";
+    card.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>${escapeHtml(detail)}</small>`;
+    return card;
+  }));
+  document.querySelector("#analyticsCoverage").textContent = `${stats.bookingCount} confirmed stays overlap this year. Calendar-only availability blocks are excluded because they may represent maintenance or owner stays. Imported Lodgify deposits are unavailable and excluded from deposits paid; imported totals and balances reflect the last sync. This panel covers records retained in this app, not a complete historical Lodgify ledger.${stats.missingFinancials ? ` ${stats.missingFinancials} stays lack financial totals and are excluded from money figures.` : ""}`;
 }
