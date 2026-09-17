@@ -643,7 +643,157 @@ function reservationAction(reservation) {
         actions.push(`<a class="text-button" href="${escapeHtml(paymentPageUrl(reservation, "balance"))}" target="_blank" rel="noopener">Open balance link</a>`);
         actions.push(`<button type="button" class="text-button" data-action="copy-payment-link" data-url="${escapeHtml(paymentPageUrl(reservation, "balance"))}">Copy balance link</button>`);
         actions.push(emailComposeLink(reservation.balanceEmail, "Compose balance email"));
-…1643 tokens truncated… await loadMessageQueue();
+      } else {
+        actions.push('<button type="button" class="text-button" data-action="create-balance-link">Create balance link</button>');
+      }
+    }
+    actions.push('<button type="button" class="text-button" data-action="cancel-reservation">Cancel booking</button>');
+    actions.push(activityActions);
+    return `<span class="row-actions">${actions.join("")}</span>`;
+  }
+  if (reservation.status === "demo_hold") {
+    return `<span class="row-actions"><button type="button" class="text-button" data-action="cancel-reservation">Cancel booking</button>${activityActions}</span>`;
+  }
+  if (String(reservation.status || "").startsWith("lodgify_")) {
+    return "-";
+  }
+  return activityActions ? `<span class="row-actions">${activityActions}</span>` : "-";
+}
+
+function emailComposeLink(email, label) {
+  if (!email || email.status === "sent" || !email.to || !email.text) return "";
+  const href = `mailto:${encodeURIComponent(email.to)}?subject=${encodeURIComponent(email.subject || label)}&body=${encodeURIComponent(email.text)}`;
+  return `<a class="text-button" href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
+}
+
+function renderMessages() {
+  els.messageList.replaceChildren(...latestMessages.map(renderMessage));
+}
+
+function renderMessage(message) {
+  const scheduledCount = latestMessageQueue.filter((delivery) => delivery.messageId === message.id).length;
+  const item = document.createElement("article");
+  item.className = `message-item message-template-editor${message.enabled ? "" : " disabled"}`;
+  item.innerHTML = `
+    <form class="message-template-form">
+      <div class="message-template-heading">
+        <div>
+          <strong>${escapeHtml(message.name)}</strong>
+          <span>${escapeHtml(timingLabel(message.sendOffset || message.trigger))} · ${scheduledCount} scheduled</span>
+        </div>
+        <label class="message-enabled-toggle">
+          <input type="checkbox" name="enabled" ${message.enabled ? "checked" : ""}>
+          Enabled
+        </label>
+      </div>
+      <label>
+        Send timing
+        <select name="sendOffset">
+          ${timingOptions(message.sendOffset)}
+        </select>
+      </label>
+      <label>
+        Subject
+        <input name="subject">
+      </label>
+      <label>
+        Message copy
+        <textarea name="body" rows="7"></textarea>
+      </label>
+      <div class="message-template-tools">
+        <label>
+          Preview as guest
+          <select name="reservationId">
+            ${reservationPreviewOptions()}
+          </select>
+        </label>
+        <label>
+          Test recipient
+          <input name="testEmail" type="email" value="marc@lucasand.co">
+        </label>
+      </div>
+      <div class="message-template-actions">
+        <button type="submit" class="text-button">Save template</button>
+        <button type="button" class="text-button" data-action="preview-template">Preview</button>
+        <button type="button" class="text-button" data-action="send-template-test">Send test</button>
+        <span class="form-message" data-template-message></span>
+      </div>
+      <pre class="message-template-preview" data-template-preview hidden></pre>
+    </form>
+  `;
+  item.querySelector("input[name='subject']").value = message.subject || "";
+  item.querySelector("textarea[name='body']").value = message.body || "";
+  item.querySelector("form").addEventListener("submit", (event) => saveMessageTemplate(event, message.id));
+  item.querySelector("[data-action='preview-template']").addEventListener("click", (event) => previewMessageTemplate(event, message.id));
+  item.querySelector("[data-action='send-template-test']").addEventListener("click", (event) => sendMessageTemplateTest(event, message.id));
+  return item;
+}
+
+function timingOptions(selected) {
+  const options = [
+    ["immediate", "When booking is confirmed"],
+    ["-7d", "7 days before arrival"],
+    ["-2d", "2 days before arrival"],
+    ["0d", "Arrival day"],
+    ["checkout", "Checkout day"],
+    ["+2d", "2 days after departure"]
+  ];
+  return options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function timingLabel(value) {
+  const labels = {
+    immediate: "When booking is confirmed",
+    booking_confirmed: "When booking is confirmed",
+    "-7d": "7 days before arrival",
+    seven_days_before_arrival: "7 days before arrival",
+    "-2d": "2 days before arrival",
+    two_days_before_arrival: "2 days before arrival",
+    "0d": "Arrival day",
+    arrival_day: "Arrival day",
+    checkout: "Checkout day",
+    checkout_day: "Checkout day",
+    "+2d": "2 days after departure",
+    two_days_after_departure: "2 days after departure"
+  };
+  return labels[value] || value || "Timing not set";
+}
+
+function reservationPreviewOptions() {
+  const reservations = latestReservations
+    .filter((reservation) => reservation.guest?.email && reservation.source !== "lodgify")
+    .sort(compareArrival);
+  if (!reservations.length) {
+    return '<option value="">No guest reservations available</option>';
+  }
+  return reservations.map((reservation) => (
+    `<option value="${escapeHtml(reservation.id)}">${escapeHtml(reservation.guest?.name || "Guest")} · ${escapeHtml(formatDate(reservation.arrival))} to ${escapeHtml(formatDate(reservation.departure))}</option>`
+  )).join("");
+}
+
+async function saveMessageTemplate(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector("button[type='submit']");
+  const status = form.querySelector("[data-template-message]");
+  const payload = {
+    enabled: form.elements.enabled.checked,
+    sendOffset: form.elements.sendOffset.value,
+    subject: form.elements.subject.value,
+    body: form.elements.body.value
+  };
+
+  submit.disabled = true;
+  submit.textContent = "Saving...";
+  status.textContent = "";
+  status.classList.remove("error");
+
+  try {
+    await patchJson(`/api/admin/messages/${encodeURIComponent(id)}`, payload);
+    form.closest(".message-item")?.classList.toggle("disabled", !payload.enabled);
+    status.textContent = "Saved. Unsent scheduled messages were updated.";
+    await loadMessages();
+    await loadMessageQueue();
   } catch (error) {
     status.textContent = error.message;
     status.classList.add("error");
