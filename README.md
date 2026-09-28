@@ -1,4 +1,6 @@
-# Sixth 14th Booking Prototype
+# Sixth 14th Booking
+
+The active application lives at the repository root: `server.mjs`, `public/`, `scripts/`, `data/`, `package.json`, and `Dockerfile`. Read [DEPLOYMENT.md](./DEPLOYMENT.md) for the current deployment map. The older staging and cutover plans are in [docs/archive/](./docs/archive/).
 
 This is the first local replacement slice for Lodgify: a booking page, quote calculator, host-approved reservation workflow, admin view, and Stripe-ready payment hooks.
 
@@ -63,9 +65,9 @@ When `STRIPE_SECRET_KEY` is present, approving a booking request in Admin create
 
 Live Stripe keys are blocked by default. To use live mode after staging approval, set `ALLOW_LIVE_STRIPE=true` along with the live key.
 
-See [STAGING_AND_STRIPE_CHECKLIST.md](./STAGING_AND_STRIPE_CHECKLIST.md) before connecting this to the public Squarespace site.
+For the original staging and Stripe cutover plan, see [docs/archive/STAGING_AND_STRIPE_CHECKLIST.md](./docs/archive/STAGING_AND_STRIPE_CHECKLIST.md). Check current Render settings before using historical deployment instructions.
 
-For private staging deployment, see [PRIVATE_STAGING_DEPLOYMENT.md](./PRIVATE_STAGING_DEPLOYMENT.md).
+For the historical private staging procedure, see [docs/archive/PRIVATE_STAGING_DEPLOYMENT.md](./docs/archive/PRIVATE_STAGING_DEPLOYMENT.md).
 
 ## Public booking, private admin
 
@@ -203,13 +205,3 @@ GOOGLE_ADS_CONVERSION_LABEL=abcDEFghiJKL123
 ```
 
 Save the environment variable and redeploy the web service. Leave `TRACKING_DEBUG=false` in production; set it to `true` temporarily if you want browser console messages confirming that the tag loaded or that a booking-request conversion fired.
-
-## Next build steps
-
-1. Add a hidden Squarespace staging page that links to the Render booking page. See [SQUARESPACE_STAGING_INSTALL.md](./SQUARESPACE_STAGING_INSTALL.md).
-2. Test the Squarespace staging path from desktop and phone while the live Lodgify widget stays in place.
-3. Create the production Render service/environment only after the Squarespace staging path is approved.
-4. Add production Stripe restricted key and live webhook in the production environment.
-5. Run a final Lodgify iCal sync and compare the next 12 months before switching public traffic.
-6. Replace the public Squarespace booking button/link with the production booking URL and keep Lodgify available for rollback.
-7. Finish the email sender/domain work before turning on automatic email sending.

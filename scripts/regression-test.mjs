@@ -227,7 +227,7 @@ async function runChecks(context) {
   });
 
   await check("Squarespace booking button preserves attribution query fields", async () => {
-    const buttonSource = await readFile(path.join(rootDir, "SQUARESPACE_BOOKING_BUTTON.html"), "utf8");
+    const buttonSource = await readFile(path.join(rootDir, "docs/archive/SQUARESPACE_BOOKING_BUTTON.html"), "utf8");
     for (const key of ["gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]) {
       assert(buttonSource.includes(`"${key}"`), `expected Squarespace button to preserve ${key}`);
     }
