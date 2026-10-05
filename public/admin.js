@@ -1,3 +1,4 @@
+import { mountHousekeepingReport } from "./housekeeping-report.js";
 import { calculateBookingAnalytics } from "./booking-analytics.js";
 
 const els = {
@@ -30,6 +31,8 @@ let latestAvailabilityBlocks = [];
 let latestMessageQueue = [];
 let latestMessages = [];
 let adminCalendarMonth = firstOfMonth(todayIso());
+
+const housekeepingReport = mountHousekeepingReport();
 
 await initAdmin();
 
@@ -89,6 +92,7 @@ async function loadReservations() {
   latestManualBlocks = store.manualBlocks || [];
   latestAvailabilityBlocks = store.availabilityBlocks || [];
   renderBookingAnalytics();
+  housekeepingReport.update(latestReservations, latestAvailabilityBlocks);
   renderAdminCalendar();
   renderReservations(latestReservations, latestManualBlocks, latestAvailabilityBlocks);
   renderMessages();

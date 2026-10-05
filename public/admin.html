@@ -62,6 +62,22 @@
         <div id="adminCalendar" class="admin-calendar" aria-label="Admin booking calendar"></div>
       </section>
 
+      <section id="housekeepingReport" class="admin-section" aria-labelledby="housekeepingHeading">
+        <div class="section-heading">
+          <div><p class="eyebrow">Monthly records</p><h1 id="housekeepingHeading">Guest &amp; housekeeping report</h1></div>
+          <div class="section-actions housekeeping-controls">
+            <label>Month <input id="housekeepingMonth" type="month" required></label>
+            <button id="housekeepingCsv" type="button" class="secondary-button">Download CSV</button>
+            <button id="housekeepingPrint" type="button" class="secondary-button">Print report</button>
+          </div>
+        </div>
+        <p id="housekeepingPeriod"></p>
+        <div id="housekeepingSummary" class="analytics-grid" aria-live="polite"></div>
+        <p class="muted">Confirmed bookings, including archived and future stays. Nights are split between months; turnovers count on checkout. Guests count once per stay with nights in this month, not unique people. Payment figures are current recorded amounts for the full listed bookings, not money received this month; do not add these figures across months.</p>
+        <p id="housekeepingCoverage" class="muted"></p>
+        <div id="housekeepingTable" class="housekeeping-table"></div>
+      </section>
+
       <section class="admin-section">
         <div class="section-heading">
           <div>

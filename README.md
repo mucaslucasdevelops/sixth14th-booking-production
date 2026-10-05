@@ -205,3 +205,18 @@ GOOGLE_ADS_CONVERSION_LABEL=abcDEFghiJKL123
 ```
 
 Save the environment variable and redeploy the web service. Leave `TRACKING_DEBUG=false` in production; set it to `true` temporarily if you want browser console messages confirming that the tag loaded or that a booking-request conversion fired.
+
+## Monthly guest and housekeeping report
+
+Admin includes a month selector below the booking calendar with confirmed stays,
+recorded guest counts, occupied nights, guest-nights, checkout turnovers, and
+payments toward the listed bookings. Archived confirmed bookings remain included.
+Nights are split at month boundaries; a checkout on the first day is included for
+cleaning with zero occupied nights. Future months show confirmed scheduled stays.
+Amounts paid are current full-booking figures, not monthly cash receipts, and
+must not be summed across monthly reports. Currencies are totaled separately.
+Missing data is labeled Unknown; Lodgify defaults and availability-only coverage
+are explained beside the report. CSV export provides the selected month's detail;
+Print report prints only this section.
+
+Run calculation and CSV checks with `node scripts/housekeeping-report-test.mjs`.
