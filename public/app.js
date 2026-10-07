@@ -264,8 +264,14 @@ async function submitBooking(event) {
       notes: form.get("notes"),
       attribution: state.attribution
     });
-    if (result.checkoutUrl) {
+    // Every accepted request is a lead, including requests awaiting approval.
+    // Analytics failures must not turn a saved request into a visible error.
+    try {
       await trackBookingRequestConversion(result);
+    } catch (trackingError) {
+      console.warn("Booking request saved, but conversion tracking failed.", trackingError);
+    }
+    if (result.checkoutUrl) {
       window.location.href = result.checkoutUrl;
       return;
     }
