@@ -40,6 +40,7 @@ The sync is one-way only: it imports future Lodgify blocks into the new calendar
 - Calculates nightly, weekly, monthly, cleaning fee, deposit, and balance totals.
 - Creates booking requests first; the host approves or declines them from Admin.
 - Creates Stripe deposit links only after host approval.
+- Lets Admin refresh an unpaid deposit link, including an expired hold, if the dates are still available. This preserves the approved price and guest link, retires the previous Stripe checkout, renews the configured payment hold, and sends or prepares an updated deposit email. Paid, canceled, declined, conflicting, and ended stays cannot be refreshed.
 - Prepares a deposit-link email from `Stay@Sixth14th.com` after host approval.
 - Creates Stripe balance links from Admin after the deposit has secured the booking.
 - Prepares a balance-payment email draft from `Stay@Sixth14th.com`.
@@ -220,3 +221,5 @@ are explained beside the report. CSV export provides the selected month's detail
 Print report prints only this section.
 
 Run calculation and CSV checks with `node scripts/housekeeping-report-test.mjs`.
+
+Run the deposit refresh integration checks (mock Stripe; no real payments or emails) with `npm run test:deposit-refresh`.
