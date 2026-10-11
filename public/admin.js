@@ -346,6 +346,10 @@ function renderReservations(reservations, blocks, availabilityBlocks) {
     if (approveButton) {
       approveButton.addEventListener("click", () => approveReservation(reservation.id, approveButton));
     }
+    const refreshDepositButton = row.querySelector("[data-action='refresh-deposit-link']");
+    if (refreshDepositButton) {
+      refreshDepositButton.addEventListener("click", () => refreshDepositLink(reservation.id, refreshDepositButton));
+    }
     const declineButton = row.querySelector("[data-action='decline-request']");
     if (declineButton) {
       declineButton.addEventListener("click", () => declineReservation(reservation.id, declineButton));
@@ -630,6 +634,7 @@ function reservationAction(reservation) {
     if (isExpiredHold(reservation)) {
       return `
         <span class="row-actions">
+          <button type="button" class="text-button" data-action="refresh-deposit-link">Refresh deposit link</button>
           <button type="button" class="text-button" data-action="cancel-reservation">Cancel expired hold</button>
           ${activityActions}
         </span>
@@ -644,6 +649,7 @@ function reservationAction(reservation) {
       <span class="row-actions">
         ${paymentLink}
         ${emailLink}
+        <button type="button" class="text-button" data-action="refresh-deposit-link">Refresh deposit link</button>
         <button type="button" class="text-button" data-action="cancel-reservation">Cancel hold</button>
         ${activityActions}
       </span>
@@ -1134,6 +1140,28 @@ async function approveReservation(id, button) {
   } catch (error) {
     button.disabled = false;
     if (specialOfferInput) specialOfferInput.disabled = false;
+    button.textContent = label;
+    window.alert(error.message);
+  }
+}
+
+async function refreshDepositLink(id, button) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Refreshing...";
+  try {
+    const result = await postJson(`/api/admin/reservations/${encodeURIComponent(id)}/refresh-deposit`, {});
+    await Promise.all([loadReservations(), loadMessageQueue()]);
+    if (result.email?.status === "sent") {
+      window.alert("Deposit link refreshed, payment hold renewed, and email sent to the guest.");
+    } else if (result.email?.status === "failed") {
+      const detail = result.email.error ? `\n\nEmail error: ${result.email.error}` : "";
+      window.alert(`Deposit link refreshed and payment hold renewed, but the email could not be sent. Use Copy deposit link or Compose deposit email in the reservation row.${detail}`);
+    } else {
+      window.alert("Deposit link refreshed and payment hold renewed. Use Copy deposit link or Compose deposit email to send it to the guest.");
+    }
+  } catch (error) {
+    button.disabled = false;
     button.textContent = label;
     window.alert(error.message);
   }
