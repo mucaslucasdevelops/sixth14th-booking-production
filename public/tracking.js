@@ -1,5 +1,8 @@
 const DEFAULT_GOOGLE_ADS_ID = "AW-994349610";
-const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "VjVqCJiT3eccEKqkktoD";
+// "Booking request" conversion action (Primary for Submit lead forms in the
+// "Sixth & 14th — Advertising" account). Label copied verbatim from the
+// action's event snippet in Google Ads; do not change without updating it there too.
+const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "YoJWCNcQsKAdEKqkktoD";
 const GOOGLE_TAG_SCRIPT_ID = "sixth14th-google-tag";
 
 const trackingState = {
@@ -61,11 +64,24 @@ async function trackBookingRequestConversion(details = {}) {
       resolve(true);
     };
 
-    window.gtag("event", "conversion", {
+    // Fire the "Booking request" conversion in Google Ads. value/currency/
+    // transaction_id are passed through so the action (configured for dynamic
+    // values) records the real booking value for future ROAS bidding.
+    const eventParams = {
       send_to: `${trackingState.adsId}/${trackingState.conversionLabel}`,
       event_callback: finish,
       event_timeout: 1000
-    });
+    };
+    if (typeof details.value === "number" && Number.isFinite(details.value)) {
+      eventParams.value = details.value;
+    }
+    if (details.currency) {
+      eventParams.currency = details.currency;
+    }
+    if (details.transactionId) {
+      eventParams.transaction_id = String(details.transactionId);
+    }
+    window.gtag("event", "conversion", eventParams);
     setTimeout(finish, 1200);
   });
 }

@@ -110,7 +110,7 @@ async function runChecks(context) {
         paymentLinkHtml.includes("https://checkout.stripe.com/c/pay/short-payment-link"),
         "expected short payment link page to continue to Stripe checkout"
       );
-      assert(paymentLinkHtml.includes("AW-994349610/VjVqCJiT3eccEKqkktoD"), "expected short payment link page to fire purchase conversion");
+      assert(!paymentLinkHtml.includes("gtag('event', 'conversion'"), "expected short payment link page NOT to fire a conversion (conversions fire at request submit and on /success.html)");
 
       const tokenPaymentLink = await fetch(`${publicApp.baseUrl}/pay/deposit/deposit-token`, { redirect: "manual" });
       const tokenPaymentLinkHtml = await tokenPaymentLink.text();
@@ -119,7 +119,7 @@ async function runChecks(context) {
         tokenPaymentLinkHtml.includes("https://checkout.stripe.com/c/pay/short-payment-link"),
         "expected token payment link page to continue to Stripe checkout"
       );
-      assert(tokenPaymentLinkHtml.includes("AW-994349610/VjVqCJiT3eccEKqkktoD"), "expected token payment link page to fire purchase conversion");
+      assert(!tokenPaymentLinkHtml.includes("gtag('event', 'conversion'"), "expected token payment link page NOT to fire a conversion (conversions fire at request submit and on /success.html)");
 
       const balancePaymentLink = await fetch(`${publicApp.baseUrl}/pay/balance/balance-token`, { redirect: "manual" });
       const balancePaymentLinkHtml = await balancePaymentLink.text();
@@ -128,7 +128,7 @@ async function runChecks(context) {
         balancePaymentLinkHtml.includes("https://checkout.stripe.com/c/pay/balance-payment-link"),
         "expected balance payment link page to continue to Stripe checkout"
       );
-      assert(balancePaymentLinkHtml.includes("AW-994349610/VjVqCJiT3eccEKqkktoD"), "expected balance payment link page to fire purchase conversion");
+      assert(!balancePaymentLinkHtml.includes("gtag('event', 'conversion'"), "expected balance payment link page NOT to fire a conversion (conversions fire at request submit and on /success.html)");
     } finally {
       await publicApp.stop();
     }
