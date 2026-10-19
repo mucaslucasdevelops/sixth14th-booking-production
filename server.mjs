@@ -479,6 +479,7 @@ async function approveReservationRequest(id, req) {
     item.holdExpiresAt = addMinutes(new Date(), paymentHoldMinutes).toISOString();
     item.stripeCheckoutSessionId = session.id;
     item.stripeCheckoutUrl = session.url;
+    item.depositCheckoutSessionCreatedAt = new Date().toISOString();
     item.depositPaymentToken = item.depositPaymentToken || createPaymentToken();
   });
   const updated = await prepareDepositEmail(id, settings);
@@ -712,6 +713,38 @@ async function handlePaymentLink(req, res, url) {
     });
     sendCheckoutRedirect(res, session.url);
     return;
+  }
+
+  // Deposits: mint a fresh Stripe session when the stored one is near
+  // Stripe's 24h expiry, mirroring the balance-link refresh above.
+  if (
+    link.type === "deposit" &&
+    !["deposit_paid", "paid_in_full"].includes(reservation.paymentStatus)
+  ) {
+    const createdAt = reservation.depositCheckoutSessionCreatedAt
+      ? new Date(reservation.depositCheckoutSessionCreatedAt).getTime()
+      : 0;
+    const sessionStale = Date.now() - createdAt > 20 * 60 * 60 * 1000;
+    if (sessionStale && process.env.STRIPE_SECRET_KEY) {
+      const depositSettings = await readSettings();
+      const session = await createStripeCheckoutSession(
+        reservation,
+        depositSettings,
+        req,
+        "deposit"
+      );
+      await mutateReservation(reservation.id, (item) => {
+        item.stripeCheckoutSessionId = session.id;
+        item.stripeCheckoutUrl = session.url;
+        item.depositCheckoutSessionCreatedAt = new Date().toISOString();
+      });
+      await appendAuditEvent(
+        "payment.deposit_checkout_refreshed",
+        `Created fresh deposit checkout for ${reservation.guest?.name || "Guest"}`,
+        { reservationId: reservation.id, checkoutSessionId: session.id }
+      );
+      reservation.stripeCheckoutUrl = session.url;
+    }
   }
 
   const checkoutUrl = link.type === "balance" ? reservation.balanceCheckoutUrl : reservation.stripeCheckoutUrl;
