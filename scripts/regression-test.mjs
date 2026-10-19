@@ -220,10 +220,19 @@ async function runChecks(context) {
     );
   });
 
-  await check("Google Ads delivery is disabled while attribution remains capture-only", async () => {
+  await check("Google Ads tracking loads the configured tag and fires conversions", async () => {
     const trackingSource = await readFile(path.join(rootDir, "public", "tracking.js"), "utf8");
-    assert(!trackingSource.includes("googletagmanager.com/gtag/js"), "tracking should not load Google scripts yet");
-    assert(trackingSource.includes("attribution is capture-only"), "tracking should explicitly stay capture-only");
+    assert(trackingSource.includes("googletagmanager.com/gtag/js"), "tracking should load the Google tag");
+    assert(trackingSource.includes("AW-994349610"), "tracking should default to the new Ads account");
+    assert(trackingSource.includes("trackBookingRequestConversion"), "tracking should expose the booking-request conversion");
+  });
+
+  await check("success page installs the Google tag via tracking.js (no hardcoded snippet)", async () => {
+    const successSource = await readFile(path.join(rootDir, "public", "success.html"), "utf8");
+    assert(successSource.includes('src="/tracking.js"'), "success page should load /tracking.js so the configured tag is installed");
+    assert(!successSource.includes("AW-18244613356"), "success page must not reference the retired Google tag");
+    assert(!successSource.includes("2W2tCPPk7gcEKqktoD"), "success page must not reference the retired conversion label");
+    assert(!successSource.includes("gtag('event', 'conversion'"), "success page must not fire a hardcoded conversion event (Deposit Secured is page-load based)");
   });
 
   await check("Squarespace booking button preserves attribution query fields", async () => {
