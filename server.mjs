@@ -3183,11 +3183,7 @@ function redirect(res, location) {
 }
 
 function sendCheckoutRedirect(res, checkoutUrl) {
-  const tracking = publicTrackingConfig();
-  const adsId = normalizeGoogleAdsTagId(tracking.googleAdsId) || "AW-994349610";
-  const conversionLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, adsId) || "VjVqCJiT3eccEKqkktoD";
   const destination = JSON.stringify(checkoutUrl);
-  const sendTo = JSON.stringify(`${adsId}/${conversionLabel}`);
   sendHtml(res, 200, `<!doctype html>
 <html lang="en">
   <head>
@@ -3196,12 +3192,10 @@ function sendCheckoutRedirect(res, checkoutUrl) {
     <meta http-equiv="refresh" content="3;url=${escapeHtml(checkoutUrl)}">
     <title>Continue to checkout - Sixth &amp; 14th</title>
     <link rel="stylesheet" href="/styles.css">
-    <script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(adsId)}"></script>
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', ${JSON.stringify(adsId)});
+      // Interstitial only: no conversion is fired here. Booking requests are
+      // tracked at submit time (tracking.js) and deposits on /success.html.
+      // Firing a conversion on this redirect would double-count payment-link clicks.
       var checkoutDestination = ${destination};
       var checkoutStarted = false;
       function continueToCheckout() {
@@ -3209,13 +3203,7 @@ function sendCheckoutRedirect(res, checkoutUrl) {
         checkoutStarted = true;
         window.location.href = checkoutDestination;
       }
-      gtag('event', 'conversion', {
-        send_to: ${sendTo},
-        transaction_id: '',
-        event_callback: continueToCheckout,
-        event_timeout: 1000
-      });
-      setTimeout(continueToCheckout, 1200);
+      setTimeout(continueToCheckout, 800);
     </script>
   </head>
   <body>
@@ -3293,8 +3281,11 @@ function publicBookingEnabled() {
 
 function publicTrackingConfig() {
   return {
+    // Must match the "Booking request" conversion action's event snippet in
+    // Google Ads ("Sixth & 14th — Advertising" account). Env vars override;
+    // keep the code defaults in sync if the action is ever recreated.
     googleAdsId: process.env.GOOGLE_ADS_ID || "AW-994349610",
-    googleAdsConversionLabel: process.env.GOOGLE_ADS_CONVERSION_LABEL || "VjVqCJiT3eccEKqkktoD",
+    googleAdsConversionLabel: process.env.GOOGLE_ADS_CONVERSION_LABEL || "YoJWCNcQsKAdEKqkktoD",
     debug: trackingDebugEnabled()
   };
 }
