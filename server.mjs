@@ -263,6 +263,13 @@ async function routeApi(req, res, url) {
     return;
   }
 
+  const refreshDepositId = reservationActionId(url.pathname, "refresh-deposit");
+  if (req.method === "POST" && refreshDepositId) {
+    const result = await refreshDepositPaymentRequest(refreshDepositId, req);
+    sendJson(res, 200, result);
+    return;
+  }
+
   const declineReservationId = reservationActionId(url.pathname, "decline");
   if (req.method === "POST" && declineReservationId) {
     const result = await declineReservationRequest(declineReservationId);
@@ -503,6 +510,78 @@ async function approveReservationRequest(id, req) {
   };
 }
 
+async function refreshDepositPaymentRequest(id, req) {
+  const settings = await readSettings();
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw userError("Online payments must be configured before refreshing a deposit link.", 503);
+  }
+
+  // Keep availability checks and renewal under the same JSON queue / database lock.
+  const renewed = await updateReservationStore(async (store) => {
+    const reservation = store.reservations.find((item) => item.id === id);
+    if (!reservation) throw userError("Reservation not found.", 404);
+    if (reservation.status !== "pending_payment" || reservation.paymentStatus !== "deposit_due" || Number(reservation.amountPaid || 0) > 0) {
+      throw userError("Only unpaid, approved booking requests can receive a refreshed deposit link.", 409);
+    }
+    if (reservation.departure <= dateToIso(new Date())) {
+      throw userError("This stay has already ended. A deposit link cannot be refreshed.", 409);
+    }
+    const otherBookings = { ...store, reservations: store.reservations.filter((item) => item.id !== id) };
+    if (findConflicts(reservation.arrival, reservation.departure, settings, otherBookings).length) {
+      throw userError("These dates are no longer available. The deposit link was not refreshed.", 409);
+    }
+
+    // Retire the previous checkout before issuing another, including when the
+    // local hold expired before Stripe's checkout. A paid session awaiting its
+    // webhook must never produce a second deposit request.
+    if (reservation.stripeCheckoutSessionId) {
+      const oldSession = await depositCheckoutRequest(reservation.stripeCheckoutSessionId);
+      if (oldSession.status === "complete" || oldSession.payment_status === "paid") {
+        throw userError("Stripe has already received this deposit. Wait for payment confirmation before trying again.", 409);
+      }
+      if (oldSession.status === "open") {
+        await depositCheckoutRequest(reservation.stripeCheckoutSessionId, true);
+      } else if (oldSession.status !== "expired") {
+        throw userError("Stripe could not confirm the previous deposit checkout status. Please try again later.", 409);
+      }
+    }
+
+    const session = await createStripeCheckoutSession(reservation, settings, req, "deposit");
+    reservation.stripeCheckoutSessionId = session.id;
+    reservation.stripeCheckoutUrl = session.url;
+    reservation.depositPaymentToken = reservation.depositPaymentToken || createPaymentToken();
+    reservation.holdExpiresAt = addMinutes(new Date(), paymentHoldMinutes).toISOString();
+    reservation.updatedAt = new Date().toISOString();
+    reservation.depositStripeCheckoutSessionRefreshedAt = reservation.updatedAt;
+    addAuditEvent(store, "payment.deposit_link_refreshed", `Refreshed deposit link for ${reservation.guest?.name || "Guest"}`, {
+      reservationId: id,
+      checkoutSessionId: session.id,
+      holdExpiresAt: reservation.holdExpiresAt
+    });
+    return reservation;
+  });
+  const updated = await prepareDepositEmail(id, settings);
+  return {
+    reservation: updated,
+    checkoutUrl: renewed.stripeCheckoutUrl,
+    email: updated.depositEmail || null,
+    message: "Deposit link refreshed and the payment hold renewed."
+  };
+}
+
+async function depositCheckoutRequest(sessionId, expire = false) {
+  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}${expire ? "/expire" : ""}`, {
+    method: expire ? "POST" : "GET",
+    headers: { authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+    signal: AbortSignal.timeout(15000)
+  });
+  const session = await response.json();
+  if (!response.ok) {
+    throw userError(session.error?.message || "Stripe could not verify the previous deposit checkout.", 502);
+  }
+  return session;
+}
+
 async function createBalancePaymentRequest(id, req) {
   const settings = await readSettings();
   const reservation = await findReservation(id);
@@ -612,7 +691,8 @@ async function createStripeCheckoutSession(reservation, settings, req, paymentTy
       authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
       "content-type": "application/x-www-form-urlencoded"
     },
-    body
+    body,
+    signal: AbortSignal.timeout(15000)
   });
   const data = await response.json();
   if (!response.ok) {
