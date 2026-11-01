@@ -180,6 +180,10 @@ npm run send:due
 
 The cron runner calls `POST /api/cron/send-due-messages` and sends messages whose scheduled time is due. It is protected by `CRON_SECRET` and does not require the Admin password.
 
+That same hourly endpoint also drains the Google Ads purchase-conversion queue after sending guest messages. No additional cron job or credentials in the runner are needed: Ads credentials stay on the target web service. `GOOGLE_ADS_DELIVERY_DRY_RUN=true` keeps uploads in preview mode. Missing Ads configuration leaves records queued and logs a warning when conversions are pending. Ads provider errors are reported separately and do not turn successful guest messaging into an HTTP failure. The existing dedicated Ads endpoint remains available for manual delivery; overlapping deliveries are serialized within the web process (the current production service runs one instance).
+
+Look for `Google Ads scheduled delivery` in production logs for configuration readiness, API version, sent/failed counts, and pending count. A warning with `configured:false` requires checking the web service's Google Ads environment variables; a runtime provider failure requires the protected delivery endpoint for details. Never put secrets or guest/click identifiers into logs.
+
 ## Google Ads conversion tracking
 
 The booking engine loads the Google Ads tag on the booking, admin, payment notice, and success pages with this Ads ID:
