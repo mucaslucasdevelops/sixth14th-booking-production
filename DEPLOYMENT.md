@@ -1,5 +1,11 @@
 # Deployment source and configuration
 
+## November 2026 runtime and conversion-delivery patch
+
+The root Dockerfile pins Node.js to `24.22.1-alpine` and refreshes Alpine's system CA package, following Render's October 22 certificate advisory: https://render.com/docs/advisory-emudhra. A running container is not patched by changing this file alone: build and deploy the new image, then verify its startup `Runtime: Node.js` log and certificate rejection using the application's HTTP client as described in the advisory. A clear-cache build is recommended for this remediation. The staging web service and hourly message runner use a different repository, `sixth14th-booking-staging`, and need the matching Dockerfile patch and rebuild there.
+
+The existing message runner was observed successfully POSTing to production's `/api/cron/send-due-messages` hourly on November 1. This endpoint now also attempts purchase-conversion delivery without requiring a new scheduler. Confirm `Google Ads scheduled delivery` logs on the next hourly run and inspect the protected Admin export's `googleAdsPurchaseConversions` statuses. Credentials and any `GOOGLE_ADS_API_VERSION` override remain deployment settings; this patch does not replace them. Default API version remains v25. No live queue records are rewritten by this patch.
+
 The production Render hostname observed on 2026-09-28 is `https://sixth14th-booking-production.onrender.com`; the staging hostname is `https://sixth14th-booking-staging.onrender.com`. Both returned a healthy `/api/health`. The production booking page matched `public/index.html` at this checkout byte for byte. These observations do not prove the deployed server commit or the Render dashboard settings.
 
 The intended production custom URL in the earlier cutover checklist is `https://book.sixth14th.com`. It and `https://book-staging.sixth14th.com` were unreachable from the inspection environment (HTTP 502); verify DNS and Render custom domains in the dashboard before using them as canonical URLs. Do not change `PUBLIC_BASE_URL` on a running service based only on the checklist.
