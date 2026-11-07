@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+const code = readFileSync(new URL('../public/source-attribution.js', import.meta.url), 'utf8');
+const memory = () => { const data = new Map(); return { getItem: k => data.get(k) || null, setItem: (k,v) => data.set(k,v) }; };
+const storage = memory();
+function page(url, { referrer = '', localStorage = storage, sessionStorage = memory(), links = [] } = {}) {
+  const location = new URL(url);
+  const document = { referrer, documentElement: {}, querySelectorAll: () => links, addEventListener() {} };
+  const window = { location, localStorage, sessionStorage };
+  const context = vm.createContext({ window, document, URL, URLSearchParams, Date, MutationObserver: class { observe() {} } });
+  vm.runInContext(code, context);
+  return window.sixth14thAttribution.capture();
+}
+const links = [1,2,3].map(() => ({ href: 'https://sixth14th-booking-production.onrender.com/' }));
+page('https://www.sixth14th.com/?gclid=qa-click&utm_campaign=brooklyn', { links });
+assert(links.every(a => new URL(a.href).searchParams.get('gclid') === 'qa-click'), 'all duplicate-ID buttons must be decorated');
+const later = [{ href: 'https://sixth14th-booking-production.onrender.com/' }];
+page('https://www.sixth14th.com/hosts', { referrer: 'https://www.sixth14th.com/', links: later });
+assert.equal(new URL(later[0].href).searchParams.get('gclid'), 'qa-click', 'internal navigation must retain click ID');
+const booking = page(later[0].href, { localStorage: memory(), referrer: 'https://www.sixth14th.com/hosts' });
+assert.equal(booking.gclid, 'qa-click');
+assert.equal(booking.landingPage, '/');
+assert.equal(booking.trafficSource, 'google');
+assert.equal(booking.firstSource, 'google');
+const returned = page('https://www.sixth14th.com/');
+assert.equal(returned.gclid, 'qa-click', 'direct return must retain the known campaign');
+const second = page('https://www.sixth14th.com/?utm_source=newsletter&utm_medium=email');
+assert.equal(second.trafficSource, 'newsletter');
+assert.equal(second.firstSource, 'google');
+assert.equal(second.gclid, undefined, 'new campaign must not inherit an unrelated ad click');
+const referral = page('https://www.sixth14th.com/', { localStorage: memory(), referrer: 'https://example.com/private?email=secret' });
+assert.equal(referral.trafficSource, 'example.com');
+assert.equal(referral.referrer, 'example.com', 'retain hostname only');
+for (const kind of ['gbraid', 'wbraid']) {
+  const touch = page('https://www.sixth14th.com/?'+kind+'=ios-click', { localStorage: memory() });
+  assert.equal(touch[kind], 'ios-click');
+  assert.equal(touch.trafficSource, 'google');
+}
+const blocked = { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } };
+const blockedResult = page('https://www.sixth14th.com/?wbraid=qa', { localStorage: blocked, sessionStorage: blocked });
+assert.equal(blockedResult.wbraid, 'qa');
+const unknown = page('https://sixth14th-booking-production.onrender.com/', { localStorage: memory(), referrer: 'https://www.sixth14th.com/' });
+assert.equal(unknown.trafficSource, 'unknown', 'marketing-site referrer must not invent original source');
+const expired = memory();
+expired.setItem('sixth14th_source_v1', JSON.stringify({ expiresAt: Date.now()-1, value: { gclid:'old', trafficSource:'google' } }));
+assert.equal(page('https://www.sixth14th.com/', { localStorage: expired }).gclid, undefined);
+const fresh = [{href:'https://sixth14th-booking-production.onrender.com/?arrival=2027-01-01&_gl=keep'}];
+page('https://www.sixth14th.com/?utm_source=referral', { localStorage: memory(), links: fresh });
+assert.equal(new URL(fresh[0].href).searchParams.get('_gl'), 'keep');
+assert.equal(new URL(fresh[0].href).searchParams.get('arrival'), '2027-01-01');
+console.log('PASS source handoff, all buttons, internal navigation, first/latest source, unrelated campaigns, expiry, blocked storage, unknown sources, privacy, existing link parameters');
