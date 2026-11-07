@@ -72,6 +72,19 @@
               <input name="phone" autocomplete="tel" required>
             </label>
             <label>
+              How did you first hear about us?
+              <select name="discoverySource">
+                <option value="">Optional — select one</option>
+                <option value="google_search">Google search</option>
+                <option value="google_maps">Google Maps</option>
+                <option value="friend_family">Friend or family</option>
+                <option value="returning_guest">I’ve stayed here before</option>
+                <option value="airbnb">Airbnb</option>
+                <option value="social_media">Social media</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>
               Notes
               <input name="notes" placeholder="Optional">
             </label>
@@ -111,6 +124,7 @@
       </aside>
     </main>
 
+    <script src="/source-attribution.js"></script>
     <script src="/tracking.js" type="module"></script>
     <script src="/app.js" type="module"></script>
   </body>
