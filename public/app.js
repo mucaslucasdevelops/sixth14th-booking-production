@@ -262,6 +262,7 @@ async function submitBooking(event) {
       email: form.get("email"),
       phone: form.get("phone"),
       notes: form.get("notes"),
+      discoverySource: form.get("discoverySource"),
       attribution: state.attribution
     });
     // Every accepted request is a lead, including requests awaiting approval.
@@ -300,41 +301,7 @@ function setMessage(message, isError = false) {
 }
 
 function captureAttribution() {
-  const allowedKeys = ["gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"];
-  const params = new URLSearchParams(window.location.search);
-  const found = {};
-  for (const key of allowedKeys) {
-    const value = params.get(key);
-    if (value) found[key] = value.slice(0, 500);
-  }
-
-  if (Object.keys(found).length) {
-    const attribution = {
-      ...found,
-      landingPage: window.location.pathname,
-      capturedAt: new Date().toISOString()
-    };
-    saveAttribution(attribution);
-    return attribution;
-  }
-
-  return readAttribution();
-}
-
-function saveAttribution(attribution) {
-  try {
-    window.sessionStorage.setItem("sixth14th_attribution", JSON.stringify(attribution));
-  } catch {
-    // Session storage can be unavailable in hardened browser modes.
-  }
-}
-
-function readAttribution() {
-  try {
-    return JSON.parse(window.sessionStorage.getItem("sixth14th_attribution") || "{}");
-  } catch {
-    return {};
-  }
+  return window.sixth14thAttribution?.capture() || {};
 }
 
 async function getJson(url) {
