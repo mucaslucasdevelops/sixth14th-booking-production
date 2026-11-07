@@ -235,12 +235,14 @@ async function runChecks(context) {
     assert(!successSource.includes("gtag('event', 'conversion'"), "success page must not fire a hardcoded conversion event (Deposit Secured is page-load based)");
   });
 
-  await check("Squarespace booking button preserves attribution query fields", async () => {
-    const buttonSource = await readFile(path.join(rootDir, "docs/archive/SQUARESPACE_BOOKING_BUTTON.html"), "utf8");
-    for (const key of ["gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]) {
-      assert(buttonSource.includes(`"${key}"`), `expected Squarespace button to preserve ${key}`);
-    }
-    assert(buttonSource.includes("target.searchParams.set(key, value)"), "expected preserved fields to be appended to booking URL");
+  await check("source tracking script is public and does not expose admin assets", async () => {
+    const publicApp = await startApp({ PUBLIC_BOOKING_ENABLED: "true" });
+    try {
+      const script = await request(publicApp, "GET", "/source-attribution.js", null, { auth: false, parseJson: false });
+      assert(script.status === 200, "shared Squarespace source script must be public");
+      const admin = await request(publicApp, "GET", "/admin.js", null, { auth: false, parseJson: false });
+      assert(admin.status === 401, "admin assets must remain private");
+    } finally { await publicApp.stop(); }
   });
 
   await check("Stripe checkout metadata includes booking and safe attribution fields", async () => {
@@ -436,6 +438,7 @@ async function runChecks(context) {
       email: "qa@example.com",
       phone: "5551234567",
       notes: "Regression test",
+      discoverySource: "friend_family",
       attribution: {
         gclid: "test-gclid",
         gbraid: "test-gbraid",
@@ -445,6 +448,11 @@ async function runChecks(context) {
         utm_campaign: "brand",
         utm_term: "park slope rental",
         utm_content: "booking-button",
+        trafficSource: "google",
+        trafficMedium: "cpc",
+        firstSource: "newsletter",
+        firstMedium: "email",
+        referrer: "example.com",
         landingPage: "/",
         capturedAt: "2026-06-04T00:00:00.000Z",
         ignored: "do-not-store"
@@ -455,6 +463,9 @@ async function runChecks(context) {
     booking = response.body.reservation;
     assert(booking.status === "pending_host_approval", `expected pending_host_approval, got ${booking.status}`);
     assert(booking.paymentStatus === "awaiting_host_approval", `expected awaiting_host_approval, got ${booking.paymentStatus}`);
+    assert(booking.guest.discoverySource === "friend_family", "expected guest-reported source separately stored");
+    assert(booking.attribution.firstSource === "newsletter", "expected first tracked source retained");
+    assert(booking.attribution.referrer === "example.com", "expected referrer retained");
     assert(booking.attribution.gclid === "test-gclid", "expected gclid attribution to be stored");
     assert(booking.attribution.utm_campaign === "brand", "expected UTM attribution to be stored");
     assert(!booking.attribution.ignored, "unexpected attribution field was stored");

@@ -487,9 +487,24 @@ function renderGuestCell(reservation) {
       <span class="muted">${escapeHtml(guest.email || "")}</span>
       ${phone}
       ${notes}
+      ${renderSourceDetails(reservation)}
       ${editButton}
     </div>
   `;
+}
+
+function renderSourceDetails(reservation) {
+  const a = reservation.attribution || {};
+  const source = a.trafficSource || a.utm_source || (a.gclid || a.gbraid || a.wbraid ? "google" : "unknown");
+  const medium = a.trafficMedium || a.utm_medium || "unknown";
+  const labels = { google_search: "Google search", google_maps: "Google Maps", friend_family: "Friend or family", returning_guest: "Returning guest", airbnb: "Airbnb", social_media: "Social media", other: "Other" };
+  const reported = labels[reservation.guest?.discoverySource];
+  const detail = [`Tracked source: ${source} / ${medium}`];
+  if (a.utm_campaign) detail.push(`Campaign: ${a.utm_campaign}`);
+  if (a.firstSource) detail.push(`First tracked source: ${a.firstSource} / ${a.firstMedium || "unknown"}`);
+  if (a.capturedAt) detail.push(`Source captured: ${a.capturedAt}`);
+  if (reported) detail.push(`Guest says: ${reported}`);
+  return detail.map((line) => `<span class="muted">${escapeHtml(line)}</span>`).join("");
 }
 
 function canEditGuest(reservation) {

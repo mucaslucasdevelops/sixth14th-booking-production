@@ -215,7 +215,8 @@ label {
   gap: 8px;
 }
 
-input {
+input,
+.guest-form select {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -226,6 +227,7 @@ input {
 }
 
 input:focus,
+.guest-form select:focus,
 button:focus-visible,
 a:focus-visible {
   outline: 3px solid rgba(80, 107, 90, 0.28);

@@ -45,6 +45,7 @@ const publicBookingStaticPaths = new Set([
   "/styles.css",
   "/app.js",
   "/tracking.js",
+  "/source-attribution.js",
   "/park-slope-6av-14st.webp"
 ]);
 
@@ -353,6 +354,7 @@ async function createBooking(payload, req) {
     email: required(payload.email, "Guest email"),
     phone: required(payload.phone, "Guest phone"),
     guests: Number(payload.guests || 1),
+    discoverySource: ["google_search", "google_maps", "friend_family", "returning_guest", "airbnb", "social_media", "other"].includes(payload.discoverySource) ? payload.discoverySource : "",
     notes: String(payload.notes || "")
   };
   if (!guest.email.includes("@")) {
@@ -420,7 +422,9 @@ function sanitizeAttribution(attribution = {}) {
     "utm_term",
     "utm_content",
     "landingPage",
-    "capturedAt"
+    "capturedAt",
+    "trafficSource", "trafficMedium", "referrer",
+    "firstSource", "firstMedium", "firstLandingPage", "firstReferrer", "firstCapturedAt"
   ];
   const clean = {};
   for (const key of allowedKeys) {
