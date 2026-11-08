@@ -1,5 +1,6 @@
 import { mountHousekeepingReport } from "./housekeeping-report.js";
 import { calculateBookingAnalytics } from "./booking-analytics.js";
+import { reservationOccupiesCalendar } from "./calendar-policy.js";
 
 const els = {
   stagingStatus: document.querySelector("#stagingStatus"),
@@ -229,8 +230,7 @@ function buildAdminCalendarEvents(year, month) {
     eventsByDate.set(iso, list);
   };
   for (const reservation of latestReservations) {
-    if (reservation.archivedAt) continue;
-    if (["canceled", "declined"].includes(reservation.status)) continue;
+    if (!reservationOccupiesCalendar(reservation)) continue;
     const isLodgify = reservation.source === "lodgify" || String(reservation.status || "").startsWith("lodgify_");
     const label = isLodgify ? "Lodgify booking" : reservation.guest?.name || "Guest";
     eachDate(reservation.arrival, reservation.departure, (iso) => {
@@ -250,13 +250,6 @@ function buildAdminCalendarEvents(year, month) {
     eachDate(block.start, block.end, (iso) => {
       if (isSameMonth(iso, year, month)) {
         addEvent(iso, { type: "block", label: block.reason || "Manual block" });
-      }
-    });
-  }
-  for (const block of latestAvailabilityBlocks) {
-    eachDate(block.start, block.end, (iso) => {
-      if (isSameMonth(iso, year, month)) {
-        addEvent(iso, { type: "lodgify", label: block.reason || "Lodgify booking" });
       }
     });
   }
@@ -415,7 +408,7 @@ function renderOperationsDashboard() {
 
   const cards = [
     dashboardCard("Pending requests", pendingRequests.length, pendingRequests.map(reservationLine).slice(0, 3), "Requests waiting for approval."),
-    dashboardCard("Expired holds", expiredHolds.length, expiredHolds.map(reservationLine).slice(0, 3), "Payment holds that should be canceled or followed up."),
+    dashboardCard("Overdue deposits", expiredHolds.length, expiredHolds.map(reservationLine).slice(0, 3), "Unpaid requests to follow up. Dates are not reserved."),
     dashboardCard("Unpaid balances", unpaidBalances.length, unpaidBalances.map(balanceLine).slice(0, 3), "Booked stays with money still due."),
     dashboardCard("Messages due", dueMessages.length, dueMessages.map(messageLine).slice(0, 3), "Guest messages ready to send."),
     dashboardCard("Failed messages", failedMessages.length, failedMessages.map(messageLine).slice(0, 3), "Emails that need attention."),
@@ -578,7 +571,7 @@ function paymentSummary(reservation) {
   if (!reservation.holdExpiresAt || reservation.status !== "pending_payment") {
     return emailStatus ? `${status}<br>${emailStatus}` : status;
   }
-  const label = isExpiredHold(reservation) ? "Hold expired" : "Hold expires";
+  const label = isExpiredHold(reservation) ? "Payment window elapsed" : "Payment requested by";
   return `${status}<br><span class="muted">${label} ${escapeHtml(formatDateTime(reservation.holdExpiresAt))}</span>${emailStatus ? `<br>${emailStatus}` : ""}`;
 }
 
@@ -645,7 +638,7 @@ function reservationAction(reservation) {
     if (isExpiredHold(reservation)) {
       return `
         <span class="row-actions">
-          <button type="button" class="text-button" data-action="cancel-reservation">Cancel expired hold</button>
+          <button type="button" class="text-button" data-action="cancel-reservation">Cancel unpaid request</button>
           ${activityActions}
         </span>
       `;
@@ -659,7 +652,7 @@ function reservationAction(reservation) {
       <span class="row-actions">
         ${paymentLink}
         ${emailLink}
-        <button type="button" class="text-button" data-action="cancel-reservation">Cancel hold</button>
+        <button type="button" class="text-button" data-action="cancel-reservation">Cancel unpaid request</button>
         ${activityActions}
       </span>
     `;

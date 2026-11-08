@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { syncLodgifyData } from "./scripts/lodgify-sync.mjs";
+import { reservationOccupiesCalendar } from "./public/calendar-policy.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const seedDataDir = path.join(__dirname, "data");
@@ -846,7 +847,6 @@ function buildDepositEmail(reservation, settings) {
   const dateRange = `${formatLongDate(reservation.arrival)} to ${formatLongDate(reservation.departure)}`;
   const depositAmount = formatCurrency(reservation.quote?.depositDue, reservation.quote?.currency);
   const totalAmount = formatCurrency(reservation.quote?.total, reservation.quote?.currency);
-  const holdUntil = reservation.holdExpiresAt ? formatDateTimeForEmail(reservation.holdExpiresAt, settings) : "";
   const contactPhone = business.contactPhone ? ` or text ${business.contactPhone}` : "";
   const link = publicPaymentUrl(reservation, "deposit") || reservation.stripeCheckoutUrl || "";
   const subject = `Deposit link for your ${brandName} booking`;
@@ -862,7 +862,7 @@ function buildDepositEmail(reservation, settings) {
     "Please use this secure link to make your deposit and secure the booking:",
     link,
     "",
-    holdUntil ? `This payment link will hold the dates until ${holdUntil}.` : null,
+    "Your dates are secured only once your deposit is received.",
     `If you have any questions, just reply to this email${contactPhone}.`,
     "",
     "Warmly,",
@@ -879,7 +879,7 @@ function buildDepositEmail(reservation, settings) {
       <strong>Deposit due now:</strong> ${escapeHtml(depositAmount)}
     </p>
     <p><a href="${escapeHtml(link)}" style="background:#2e4c3b;color:#ffffff;display:inline-block;padding:12px 18px;text-decoration:none;border-radius:6px;font-weight:700;">Make your secure deposit</a></p>
-    ${holdUntil ? `<p>This payment link will hold the dates until ${escapeHtml(holdUntil)}.</p>` : ""}
+    <p>Your dates are secured only once your deposit is received.</p>
     <p>If you have any questions, just reply to this email${escapeHtml(contactPhone)}.</p>
     <p>Warmly,<br>${escapeHtml(business.ownerName || "Marc")}<br>${escapeHtml(brandName)}</p>
     ${bookingDetailsFooterHtml(reservation, settings)}
@@ -1169,7 +1169,7 @@ function shouldHaveCalendarEvent(reservation) {
   if (!reservation || reservation.source === "lodgify") return false;
   if (!reservation.arrival || !reservation.departure) return false;
   if (reservation.archivedAt) return false;
-  return ["booked", "demo_hold"].includes(reservation.status);
+  return reservationOccupiesCalendar(reservation);
 }
 
 function buildMimeMessage(message) {
@@ -1331,7 +1331,9 @@ async function handleStripeWebhook(req, res) {
     return;
   }
   const event = JSON.parse(rawBody.toString("utf8"));
-  if (event.type === "checkout.session.completed") {
+  if (["checkout.session.completed", "checkout.session.async_payment_succeeded"].includes(event.type)
+      && event.data?.object?.payment_status === "paid"
+      && Number(event.data.object.amount_total) > 0) {
     const session = event.data.object;
     const bookingId = session.metadata?.booking_id;
     if (bookingId) {
@@ -2444,7 +2446,7 @@ function buildMessageQueue(store, settings, now) {
 function shouldScheduleMessages(reservation) {
   if (!reservation || reservation.source === "lodgify") return false;
   if (!reservation.guest?.email) return false;
-  return ["booked", "demo_hold"].includes(reservation.status);
+  return reservationOccupiesCalendar(reservation);
 }
 
 function shouldScheduleMessage(message, reservation) {
@@ -2697,8 +2699,7 @@ function findConflicts(arrival, departure, settings, store) {
   const buffer = settings.rules.preparationDays;
 
   for (const reservation of store.reservations || []) {
-    if (["canceled", "declined"].includes(reservation.status)) continue;
-    if (reservation.status === "pending_payment" && isExpiredHold(reservation)) continue;
+    if (!reservationOccupiesCalendar(reservation)) continue;
     const blockedStart = addDays(parseDate(reservation.arrival), -buffer);
     const blockedEnd = addDays(parseDate(reservation.departure), buffer);
     if (rangesOverlap(start, end, blockedStart, blockedEnd)) {
@@ -2707,16 +2708,14 @@ function findConflicts(arrival, departure, settings, store) {
   }
 
   for (const block of store.manualBlocks || []) {
+    if (block.archivedAt) continue;
     if (rangesOverlap(start, end, parseDate(block.start), parseDate(block.end))) {
       conflicts.push({ type: "manual_block", id: block.id });
     }
   }
 
-  for (const block of store.availabilityBlocks || []) {
-    if (rangesOverlap(start, end, parseDate(block.start), parseDate(block.end))) {
-      conflicts.push({ type: "synced_availability", id: block.id });
-    }
-  }
+  // Imported availability alone contains no evidence of a received deposit.
+  // Paid imported reservations are handled above; other holds need a host block.
   return conflicts;
 }
 

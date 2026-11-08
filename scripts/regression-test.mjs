@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { syncLodgifyData } from "./lodgify-sync.mjs";
+import { reservationOccupiesCalendar } from "../public/calendar-policy.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -35,6 +36,18 @@ if (failures.length) {
 }
 
 async function runChecks(context) {
+  await check("calendar policy requires received money and an active booking", async () => {
+    const paid = { status: "booked", paymentStatus: "deposit_paid", amountPaid: 1, arrival: "2027-01-01", departure: "2027-01-03" };
+    assert(reservationOccupiesCalendar(paid), "even a $1 friends-and-family deposit reserves dates");
+    assert(reservationOccupiesCalendar({ ...paid, paymentStatus: "balance_due" }), "requesting a balance must retain the paid booking");
+    for (const patch of [
+      { status: "pending_host_approval" }, { status: "pending_payment" },
+      { status: "demo_hold" }, { status: "canceled" }, { status: "declined" },
+      { amountPaid: 0 }, { amountPaid: undefined }, { amountPaid: -1 },
+      { paymentStatus: "refunded" }, { archivedAt: "2026-01-01" }
+    ]) assert(!reservationOccupiesCalendar({ ...paid, ...patch }), `must exclude ${JSON.stringify(patch)}`);
+  });
+
   await check("health is public", async () => {
     const response = await request(context, "GET", "/api/health", null, { auth: false });
     assert(response.status === 200, `expected 200, got ${response.status}`);
@@ -123,11 +136,8 @@ async function runChecks(context) {
 
       const balancePaymentLink = await fetch(`${publicApp.baseUrl}/pay/balance/balance-token`, { redirect: "manual" });
       const balancePaymentLinkHtml = await balancePaymentLink.text();
-      assert(balancePaymentLink.status === 200, `expected balance payment link checkout page 200, got ${balancePaymentLink.status}`);
-      assert(
-        balancePaymentLinkHtml.includes("https://checkout.stripe.com/c/pay/balance-payment-link"),
-        "expected balance payment link page to continue to Stripe checkout"
-      );
+      assert(balancePaymentLink.status === 503, `expected unconfigured balance checkout 503, got ${balancePaymentLink.status}`);
+      assert(balancePaymentLinkHtml.includes("Online payments are not configured"), "expected safe notice without a Stripe key");
       assert(!balancePaymentLinkHtml.includes("gtag('event', 'conversion'"), "expected balance payment link page NOT to fire a conversion (conversions fire at request submit and on /success.html)");
     } finally {
       await publicApp.stop();
@@ -429,7 +439,7 @@ async function runChecks(context) {
   });
 
   let booking;
-  await check("booking request blocks duplicate dates", async () => {
+  await check("booking requests leave dates available until a deposit is paid", async () => {
     const response = await request(context, "POST", "/api/bookings", {
       arrival: sixNightArrival,
       departure: sixNightDeparture,
@@ -471,11 +481,11 @@ async function runChecks(context) {
     assert(!booking.attribution.ignored, "unexpected attribution field was stored");
 
     const duplicate = await quote(context, sixNightArrival, sixNightDeparture);
-    assert(duplicate.status === 400, `expected duplicate quote 400, got ${duplicate.status}`);
+    assert(duplicate.status === 200, `expected unpaid request dates to remain available, got ${duplicate.status}`);
 
     const availability = await request(context, "GET", `/api/availability?start=${sixNightArrival}&end=${addDaysIso(sixNightArrival, 1)}`);
     assert(availability.status === 200, `expected availability 200, got ${availability.status}`);
-    assert(availability.body.days[0].available === false, "arrival day should be unavailable after hold");
+    assert(availability.body.days[0].available === true, "unpaid request must not reserve arrival day");
   });
 
   await check("message queue waits for host approval", async () => {
@@ -502,6 +512,26 @@ async function runChecks(context) {
     assert(response.body.reservation.paymentStatus === "demo_no_payment", `expected demo_no_payment, got ${response.body.reservation.paymentStatus}`);
   });
 
+  await check("unpaid and zero-dollar Stripe checkouts do not reserve dates", async () => {
+    for (const [paymentStatus, amount] of [["unpaid", 95000], ["no_payment_required", 0], ["paid", 0]]) {
+      const raw = JSON.stringify({ type: "checkout.session.completed", data: { object: {
+        id: "cs_unpaid", payment_status: paymentStatus, amount_total: amount,
+        metadata: { booking_id: booking.id }
+      } } });
+      const timestamp = Math.floor(Date.now() / 1000);
+      const signature = createHmac("sha256", webhookSecret).update(`${timestamp}.${raw}`).digest("hex");
+      const response = await rawRequest(context, "POST", "/api/stripe/webhook", raw, {
+        "content-type": "application/json", "stripe-signature": `t=${timestamp},v1=${signature}`
+      });
+      assert(response.status === 200, "expected unpaid checkout to be acknowledged");
+      const store = (await request(context, "GET", "/api/admin/reservations")).body;
+      const item = store.reservations.find(item => item.id === booking.id);
+      assert(item.amountPaid === 0 && item.status !== "booked", "unpaid checkout must not confirm a booking");
+      assert(!item.googleCalendarEvent?.id, "unpaid checkout must not create a Google event");
+      assert((await quote(context, sixNightArrival, sixNightDeparture)).status === 200, "unpaid dates must stay available");
+    }
+  });
+
   await check("valid Stripe webhook marks booking paid", async () => {
     const event = {
       id: "evt_regression",
@@ -510,6 +540,7 @@ async function runChecks(context) {
         object: {
           id: "cs_test_regression",
           payment_intent: "pi_test_regression",
+          payment_status: "paid",
           amount_total: Math.round(sixNightQuote.depositDue * 100),
           metadata: { booking_id: booking.id }
         }
@@ -529,6 +560,7 @@ async function runChecks(context) {
     assert(updated.status === "booked", `expected booked, got ${updated.status}`);
     assert(updated.paymentStatus === "deposit_paid", `expected deposit_paid, got ${updated.paymentStatus}`);
     assert(updated.amountPaid === sixNightQuote.depositDue, `expected amountPaid ${sixNightQuote.depositDue}, got ${updated.amountPaid}`);
+    assert((await quote(context, sixNightArrival, sixNightDeparture)).status === 400, "received deposit must reserve dates");
     const conversions = reservations.body.googleAdsPurchaseConversions || [];
     const conversion = conversions.find((item) => item.bookingId === booking.id);
     assert(conversion, "expected deposit webhook to prepare a purchase conversion record");
@@ -584,6 +616,7 @@ async function runChecks(context) {
         object: {
           id: "cs_test_no_click_regression",
           payment_intent: "pi_test_no_click_regression",
+          payment_status: "paid",
           amount_total: Math.round(response.body.reservation.quote.depositDue * 100),
           metadata: { booking_id: organicBooking.id, payment_type: "deposit" }
         }
@@ -657,6 +690,7 @@ async function runChecks(context) {
         object: {
           id: "cs_test_balance_regression",
           payment_intent: "pi_test_balance_regression",
+          payment_status: "paid",
           amount_total: Math.round(sixNightQuote.balanceDue * 100),
           metadata: { booking_id: booking.id, payment_type: "balance" }
         }
@@ -712,7 +746,7 @@ async function runChecks(context) {
     const requestBooking = response.body.reservation;
 
     const blocked = await quote(context, arrival, departure);
-    assert(blocked.status === 400, `expected pending request to block dates, got ${blocked.status}`);
+    assert(blocked.status === 200, `expected pending request dates to stay available, got ${blocked.status}`);
 
     const declined = await request(context, "POST", `/api/admin/reservations/${encodeURIComponent(requestBooking.id)}/decline`, {});
     assert(declined.status === 200, `expected decline 200, got ${declined.status}`);
@@ -737,7 +771,7 @@ async function runChecks(context) {
     const booking = response.body.reservation;
 
     const blocked = await quote(context, arrival, departure);
-    assert(blocked.status === 400, `expected pending request to block dates, got ${blocked.status}`);
+    assert(blocked.status === 200, `expected pending request dates to stay available, got ${blocked.status}`);
 
     const canceled = await request(context, "PATCH", `/api/admin/reservations/${booking.id}`, {
       status: "canceled",
@@ -751,7 +785,7 @@ async function runChecks(context) {
   });
 
   await check("admin can archive and delete local booking activity", async () => {
-    const arrival = nextWeekdayIso(4, 118);
+    const arrival = nextWeekdayIso(4, 160);
     const departure = addDaysIso(arrival, 2);
     const response = await request(context, "POST", "/api/bookings", {
       arrival,
