@@ -3321,7 +3321,8 @@ function publicTrackingConfig() {
     // Google Ads ("Sixth & 14th — Advertising" account). Env vars override;
     // keep the code defaults in sync if the action is ever recreated.
     googleAdsId: process.env.GOOGLE_ADS_ID || "AW-994349610",
-    googleAdsConversionLabel: process.env.GOOGLE_ADS_CONVERSION_LABEL || "YoJWCNcQsKAdEKqkktoD",
+    googleTagId: process.env.GOOGLE_TAG_ID || "GT-MBGGQJGQ",
+    googleAdsConversionLabel: process.env.GOOGLE_ADS_CONVERSION_LABEL || "YoJWCNCQsKAdEKqkktoD",
     debug: trackingDebugEnabled()
   };
 }

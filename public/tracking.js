@@ -1,12 +1,16 @@
 const DEFAULT_GOOGLE_ADS_ID = "AW-994349610";
+// The loader ID is distinct from the Ads event destination. The AW alias
+// currently loads another container; use the account's installation snippet.
+const DEFAULT_GOOGLE_TAG_ID = "GT-MBGGQJGQ";
 // "Booking request" conversion action (Primary for Submit lead forms in the
 // "Sixth & 14th — Advertising" account). Label copied verbatim from the
 // action's event snippet in Google Ads; do not change without updating it there too.
-const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "YoJWCNcQsKAdEKqkktoD";
+const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "YoJWCNCQsKAdEKqkktoD";
 const GOOGLE_TAG_SCRIPT_ID = "sixth14th-google-tag";
 
 const trackingState = {
   adsId: DEFAULT_GOOGLE_ADS_ID,
+  tagId: DEFAULT_GOOGLE_TAG_ID,
   conversionLabel: DEFAULT_GOOGLE_ADS_CONVERSION_LABEL,
   debug: false,
   ready: false
@@ -24,13 +28,15 @@ async function initTracking() {
     const config = await fetchJson("/api/config");
     const tracking = config.tracking || {};
     const configuredAdsId = normalizeGoogleAdsId(tracking.googleAdsId);
+    trackingState.tagId = /^GT-[A-Z0-9]+$/.test(tracking.googleTagId || "")
+      ? tracking.googleTagId : DEFAULT_GOOGLE_TAG_ID;
     const configuredLabel = normalizeConversionLabel(tracking.googleAdsConversionLabel, configuredAdsId);
     trackingState.adsId = configuredAdsId && configuredLabel ? configuredAdsId : DEFAULT_GOOGLE_ADS_ID;
     trackingState.conversionLabel = configuredAdsId && configuredLabel ? configuredLabel : DEFAULT_GOOGLE_ADS_CONVERSION_LABEL;
     trackingState.debug = Boolean(tracking.debug);
-    installGoogleTag(trackingState.adsId);
+    installGoogleTag(trackingState.tagId);
     trackingState.ready = true;
-    debugLog("Google Ads tracking initialized for purchase conversion", {
+    debugLog("Google Ads tracking initialized for booking requests", {
       adsId: trackingState.adsId,
       hasConversionLabel: Boolean(trackingState.conversionLabel)
     });
@@ -42,14 +48,14 @@ async function initTracking() {
 async function trackBookingRequestConversion(details = {}) {
   await trackingReady;
   if (!trackingState.ready || !trackingState.adsId || !trackingState.conversionLabel || typeof window.gtag !== "function") {
-    debugLog("Purchase conversion skipped because Google Ads tracking is unavailable", {
+    debugLog("Booking request conversion skipped because Google Ads tracking is unavailable", {
       adsId: trackingState.adsId,
       hasConversionLabel: Boolean(trackingState.conversionLabel)
     });
     return false;
   }
 
-  debugLog("Sending purchase Google Ads conversion", {
+  debugLog("Sending booking request Google Ads conversion", {
     adsId: trackingState.adsId,
     hasConversionLabel: Boolean(trackingState.conversionLabel),
     hasTransactionId: Boolean(details.transactionId),
@@ -86,19 +92,19 @@ async function trackBookingRequestConversion(details = {}) {
   });
 }
 
-function installGoogleTag(adsId) {
+function installGoogleTag(tagId) {
   window.dataLayer = window.dataLayer || [];
   window.gtag = window.gtag || function gtag() {
     window.dataLayer.push(arguments);
   };
   window.gtag("js", new Date());
-  window.gtag("config", adsId);
+  window.gtag("config", tagId);
 
   if (document.getElementById(GOOGLE_TAG_SCRIPT_ID)) return;
   const script = document.createElement("script");
   script.id = GOOGLE_TAG_SCRIPT_ID;
   script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(adsId)}`;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(tagId)}`;
   document.head.append(script);
 }
 
