@@ -9,7 +9,7 @@
     "send:due": "node scripts/send-due-messages.mjs",
     "send:google-ads-conversions": "node scripts/send-google-ads-conversions.mjs",
     "smoke": "node scripts/smoke-test.mjs",
-    "test:regression": "node scripts/source-attribution-test.mjs && node scripts/regression-test.mjs"
+    "test:regression": "node scripts/tracking-test.mjs && node scripts/source-attribution-test.mjs && node scripts/regression-test.mjs"
   },
   "dependencies": {
     "nodemailer": "^6.9.16",
