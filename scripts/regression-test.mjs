@@ -590,6 +590,81 @@ async function runChecks(context) {
     assert(response.body.configured === false, "expected delivery to report unconfigured");
     assert(response.body.pending >= 1, "expected prepared conversion to remain pending");
     assert(response.body.sent === 0, `expected no sent conversions, got ${response.body.sent}`);
+    const scheduled = await rawRequest(context, "POST", "/api/cron/send-due-messages", undefined, {
+      "x-cron-secret": webhookSecret
+    });
+    assert(scheduled.status === 200, "missing Ads credentials must not block guest messaging");
+    assert(scheduled.body.googleAds.configured === false, "hourly cron must expose unconfigured Ads");
+    assert(scheduled.body.googleAds.pending >= 1, "hourly cron must retain pending conversions");
+  });
+
+  await check("hourly message cron drains Ads once, preserves messaging on failure, and respects dry run", async () => {
+    const mockDir = await mkdtemp(path.join(os.tmpdir(), "sixth14th-ads-mock-"));
+    const mockPath = path.join(mockDir, "fetch.mjs");
+    await writeFile(mockPath, `
+      const original = globalThis.fetch;
+      globalThis.fetch = async (url, options) => {
+        if (String(url).startsWith("https://oauth2.googleapis.com/")) {
+          if (process.env.ADS_MOCK_FAIL === "true") throw new Error("mock provider failure");
+          return Response.json({ access_token: "test-token" });
+        }
+        if (String(url).startsWith("https://googleads.googleapis.com/")) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+          return Response.json({ results: JSON.parse(options.body).conversions, jobId: "test-job" });
+        }
+        return original(url, options);
+      };
+    `);
+    try {
+      for (const mode of ["success", "failure", "dry-run"]) {
+        const adsApp = await startApp({
+          NODE_OPTIONS: `--import=${mockPath}`,
+          GOOGLE_ADS_CUSTOMER_ID: "1234567890",
+          GOOGLE_ADS_PURCHASE_CONVERSION_ACTION_ID: "123",
+          GOOGLE_ADS_DEVELOPER_TOKEN: "test",
+          GOOGLE_ADS_OAUTH_CLIENT_ID: "test",
+          GOOGLE_ADS_OAUTH_CLIENT_SECRET: "test",
+          GOOGLE_ADS_OAUTH_REFRESH_TOKEN: "test",
+          GOOGLE_ADS_DELIVERY_DRY_RUN: mode === "dry-run" ? "true" : "false",
+          ADS_MOCK_FAIL: mode === "failure" ? "true" : "false"
+        });
+        try {
+          const storePath = path.join(adsApp.dataDir, "reservations.json");
+          const store = JSON.parse(await readFile(storePath, "utf8"));
+          store.googleAdsPurchaseConversions = [{
+            id: "ads-queued", bookingId: "ads-booking", orderId: "ads-booking",
+            googleClickId: "test-gclid", googleClickIdType: "gclid",
+            conversionTimestamp: new Date().toISOString(), value: 100, currency: "USD",
+            deliveryStatus: "pending_delivery", deliveryAttempts: 0
+          }];
+          await writeFile(storePath, JSON.stringify(store));
+          const unauthorized = await rawRequest(adsApp, "POST", "/api/cron/send-due-messages");
+          assert(unauthorized.status === 401, "cron must require its secret");
+          const run = () => rawRequest(adsApp, "POST", "/api/cron/send-due-messages", undefined, { "x-cron-secret": webhookSecret });
+          const responses = mode === "success" ? await Promise.all([run(), run()]) : [await run()];
+          for (const response of responses) {
+            assert(response.status === 200, "Ads must not break the messaging response");
+            assert(typeof response.body.sent === "number", "message delivery fields must remain intact");
+            assert(response.body.googleAds, "cron must include Ads delivery status");
+          }
+          const after = JSON.parse(await readFile(storePath, "utf8")).googleAdsPurchaseConversions[0];
+          if (mode === "success") {
+            assert(after.deliveryStatus === "delivered", "queued conversion was not delivered");
+            assert(after.deliveryAttempts === 1, "overlapping cron calls uploaded more than once");
+            assert(responses.reduce((sum, response) => sum + response.body.googleAds.sent, 0) === 1, "expected one uploaded conversion");
+          } else {
+            assert(after.deliveryStatus === "pending_delivery", "failed or dry-run conversion must remain queued");
+            assert(after.deliveryAttempts === 0, "mock auth failure or dry run must not count an upload");
+            if (mode === "failure") assert(responses[0].body.googleAds.failed === 1, "provider failure must be reported");
+            else assert(responses[0].body.googleAds.dryRun === true, "dry run flag must be honored");
+          }
+        } finally {
+          await adsApp.stop();
+        }
+      }
+    } finally {
+      await rm(mockDir, { recursive: true, force: true });
+    }
   });
 
   await check("deposit webhook records skipped conversion when click ID is missing", async () => {

@@ -1,4 +1,7 @@
-FROM node:24-alpine
+FROM node:24.22.1-alpine
+
+# Refresh the OS trust store as well as Node's bundled certificates.
+RUN apk add --upgrade --no-cache ca-certificates && update-ca-certificates
 
 WORKDIR /app
 ENV NODE_ENV=production

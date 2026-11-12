@@ -23,6 +23,7 @@ const defaultEmailReplyTo = "Stay@Sixth14th.com";
 let databasePool = null;
 let jsonStoreQueue = Promise.resolve();
 let settingsStoreQueue = Promise.resolve();
+let googleAdsDeliveryQueue = Promise.resolve();
 
 if (isLiveStripeKey(process.env.STRIPE_SECRET_KEY) && process.env.ALLOW_LIVE_STRIPE !== "true") {
   throw new Error("Live Stripe keys are disabled unless ALLOW_LIVE_STRIPE=true is set.");
@@ -99,6 +100,7 @@ createServer(async (req, res) => {
 }).listen(port, host, () => {
   const displayHost = host === "0.0.0.0" ? "localhost" : host;
   console.log(`Sixth 14th booking app running at http://${displayHost}:${port}`);
+  console.log(`Runtime: Node.js ${process.version}`);
 });
 
 function rewriteAdminDataPath(url) {
@@ -1455,6 +1457,13 @@ async function preparePurchaseConversionRecord(reservation, session) {
 }
 
 async function sendGoogleAdsPurchaseConversions({ dryRun = false } = {}) {
+  // Serialize cron and admin uploads so overlapping calls re-read delivery state.
+  const delivery = googleAdsDeliveryQueue.then(() => deliverGoogleAdsPurchaseConversions({ dryRun }));
+  googleAdsDeliveryQueue = delivery.catch(() => {});
+  return delivery;
+}
+
+async function deliverGoogleAdsPurchaseConversions({ dryRun = false } = {}) {
   const config = googleAdsDeliveryConfig();
   const store = await readReservations();
   const conversions = Array.isArray(store.googleAdsPurchaseConversions) ? store.googleAdsPurchaseConversions : [];
@@ -1618,6 +1627,7 @@ async function fetchGoogleAdsAccessToken(config = googleAdsDeliveryConfig()) {
   });
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body
   });
@@ -1631,6 +1641,7 @@ async function fetchGoogleAdsAccessToken(config = googleAdsDeliveryConfig()) {
 async function uploadGoogleAdsClickConversions(config, accessToken, conversions) {
   const response = await fetch(`https://googleads.googleapis.com/${config.apiVersion}/customers/${config.customerId}:uploadClickConversions`, {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: {
       authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
@@ -2291,8 +2302,31 @@ async function handleCronSendDueMessages(req, res, url) {
   }
 
   const result = await sendDueMessageQueue();
+  // The existing hourly message job already targets this production endpoint.
+  // Keep its response fields intact and isolate Ads failures from guest messaging.
+  let googleAds;
+  try {
+    googleAds = await sendGoogleAdsPurchaseConversions({
+      dryRun: process.env.GOOGLE_ADS_DELIVERY_DRY_RUN === "true"
+    });
+    const summary = {
+      configured: googleAds.configured,
+      dryRun: googleAds.dryRun,
+      sent: googleAds.sent,
+      failed: googleAds.failed,
+      pending: googleAds.pending,
+      apiVersion: googleAdsDeliveryConfig().apiVersion
+    };
+    const warn = Number(googleAds.failed || 0) > 0 || (!googleAds.configured && googleAds.pending > 0);
+    console[warn ? "warn" : "log"]("Google Ads scheduled delivery", JSON.stringify(summary));
+  } catch (error) {
+    // Do not log raw provider errors: they can include conversion identifiers.
+    googleAds = { configured: googleAdsDeliveryConfigured(), sent: 0, failed: 1, error: "Google Ads scheduled delivery failed. Review the protected delivery endpoint." };
+    console.error(googleAds.error);
+  }
   sendJson(res, 200, {
     ...result,
+    googleAds,
     triggeredBy: "cron",
     triggeredAt: new Date().toISOString()
   });
